@@ -14,7 +14,7 @@ gstreamer-base = { git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs"
 glib = { git = "https://github.com/gtk-rs/glib"}
 gio = { git = "https://github.com/gtk-rs/gio" }
 gdk = { git = "https://github.com/gtk-rs/gdk"}
-gtk = { git = "https://github.com/gtk-rs/gtk"}
+gtk = { git = "https://github.com/gtk-rs/gtk", features = ["v3_16"]}
 
 serde = { version = "1.0.104", features = ["derive"] }
 serde_yaml = "0.8.11"

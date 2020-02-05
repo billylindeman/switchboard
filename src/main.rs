@@ -21,7 +21,8 @@ impl Application {
         let a = Application{
             window: gui::new()?,
         };
-
+        a.window.connect_destroy(|_|{gtk::main_quit()});
+        
         Ok(ApplicationRef::new(a))
     }
 
