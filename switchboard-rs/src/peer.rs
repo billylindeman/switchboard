@@ -1,6 +1,8 @@
 use gst::prelude::*;
 use gst_video::prelude::*;
 
+use uuid::Uuid;
+
 use std::result::Result;
 use failure::{Error, format_err};
 
@@ -16,12 +18,12 @@ pub enum PeerMsg {
 }
 
 pub struct PeerConnection {
-    pub id: u64,
+    pub id: Uuid,
     pub webrtcbin: gst::Element,
 }
 
 impl PeerConnection {
-    pub fn new(pipeline: &gst::Pipeline, peer_id: u64) -> Result<PeerConnection, Error> { 
+    pub fn new(pipeline: &gst::Pipeline, peer_id: Uuid) -> Result<PeerConnection, Error> { 
         let webrtcbin = gst::ElementFactory::make(
             "webrtcbin",
             Some(&format!("peer{}webrtcbin", peer_id))
