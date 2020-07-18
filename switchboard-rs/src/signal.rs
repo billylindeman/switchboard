@@ -1,10 +1,11 @@
 use uuid::Uuid;
 use serde::{Serialize,Deserialize};
 
-
 use std::collections::{HashMap};
+use std::thread;
 use std::sync::{atomic, Arc, RwLock};
 
+use jsonrpc_core::futures::Future;
 use jsonrpc_core::{Result, Error, ErrorCode};
 use jsonrpc_derive::rpc;
 use jsonrpc_ws_server::{ServerBuilder,RequestContext};
@@ -12,7 +13,7 @@ use jsonrpc_ws_server::{ServerBuilder,RequestContext};
 use jsonrpc_pubsub::typed;
 use jsonrpc_pubsub::{PubSubHandler, Session, SubscriptionId};
 
-
+#[derive(Serialize,Deserialize,Debug)]
 pub enum RoomEvent {
     StreamAdd { uuid: Uuid },
     StreamRemove { uuid: Uuid },
@@ -75,8 +76,8 @@ pub struct Server {
 impl SignalService for Server {
 	type Metadata = Arc<Session>;
 
-	fn room_join(&self, _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, param: u64) {
-		if param != 10 {
+	fn room_join(&self, _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: u64) {
+		if room_id != 10 {
 			subscriber
 				.reject(Error {
 					code: ErrorCode::InvalidParams,
@@ -127,6 +128,15 @@ impl Server {
         let active_subscriptions = rpc.active.clone();
         io.extend_with(rpc.to_delegate());
 
+        thread::spawn(move || loop {
+			let subscribers = active_subscriptions.read().unwrap();
+			for sink in subscribers.values() {
+				let _ = sink.notify(Ok(
+                    RoomEvent::StreamAdd{ uuid: Uuid::new_v4()}
+                )).wait();
+			}
+		    thread::sleep(::std::time::Duration::from_secs(1));
+        });
 
         let builder = ServerBuilder::with_meta_extractor(io, |context: &RequestContext| {
 			Arc::new(Session::new(context.sender().clone()))
