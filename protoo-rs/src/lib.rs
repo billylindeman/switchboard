@@ -1,5 +1,7 @@
 use serde::{Serialize,Deserialize};
 
+pub mod server;
+
 #[derive(Serialize,Deserialize,Debug)]
 #[serde(untagged)]
 pub enum Message {

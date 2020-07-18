@@ -27,11 +27,6 @@ log = "0.4.8"
 pretty_env_logger = "0.4.0"
 chrono = "0.4.10"
 clap = "2.33.0"
-async-std = "1.5.0"
-async-tungstenite =  "*"
-futures = "0.3.4"
-tungstenite = "0.10.1"
-
 
 # Add libx11 as a dependency on linux only
 # [target.'cfg(target_os = "linux")'.dependencies]

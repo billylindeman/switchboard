@@ -100,7 +100,7 @@ dependencies = [
  "futures-util",
  "log",
  "pin-project",
- "tungstenite 0.11.0",
+ "tungstenite",
 ]
 
 [[package]]
@@ -133,12 +133,6 @@ dependencies = [
  "object",
  "rustc-demangle",
 ]
-
-[[package]]
-name = "base64"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
 name = "base64"
@@ -1199,9 +1193,11 @@ dependencies = [
  "async-std",
  "async-tungstenite",
  "futures",
+ "log",
+ "pretty_env_logger",
  "serde",
  "serde_json",
- "tungstenite 0.10.1",
+ "tungstenite",
 ]
 
 [[package]]
@@ -1466,14 +1462,11 @@ dependencies = [
 name = "switchboard"
 version = "0.1.0"
 dependencies = [
- "async-std",
- "async-tungstenite",
  "chrono",
  "clap",
  "crossbeam-channel",
  "enclose",
  "failure",
- "futures",
  "gio",
  "glib",
  "gstreamer",
@@ -1486,7 +1479,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_yaml",
- "tungstenite 0.10.1",
 ]
 
 [[package]]
@@ -1626,11 +1618,11 @@ dependencies = [
 
 [[package]]
 name = "tungstenite"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfea31758bf674f990918962e8e5f07071a3161bd7c4138ed23e416e1ac4264e"
+checksum = "a5c7d464221cb0b538a1cd12f6d9127ed1e6bb7f3ffca98fb3cd4c6e3af8175c"
 dependencies = [
- "base64 0.11.0",
+ "base64",
  "byteorder",
  "bytes",
  "http",
@@ -1638,25 +1630,6 @@ dependencies = [
  "input_buffer",
  "log",
  "native-tls",
- "rand",
- "sha-1",
- "url",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5c7d464221cb0b538a1cd12f6d9127ed1e6bb7f3ffca98fb3cd4c6e3af8175c"
-dependencies = [
- "base64 0.12.3",
- "byteorder",
- "bytes",
- "http",
- "httparse",
- "input_buffer",
- "log",
  "rand",
  "sha-1",
  "url",
