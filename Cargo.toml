@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-    "protoo-rs",
     "switchboard-rs",
 ]
 

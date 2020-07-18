@@ -3,6 +3,9 @@ use gst::prelude::*;
 use std::result::Result;
 use failure::Error;
 
+pub type Rooms Arc<RwLock<HashMap<u64,Room>>>;
+
+
 pub struct Room {
     pub id: u64,
     pub pipeline: gst::Pipeline,
