@@ -3,7 +3,6 @@ use gdk::prelude::*;
 use gst::prelude::*;
 use gst_video::prelude::*;
 
-
 use chrono::prelude::*;
 use log::*;
 

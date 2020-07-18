@@ -1,0 +1,16 @@
+[package]
+authors = ["Billy Lindeman <billy@lindeman.sh>"]
+edition = "2018"
+name = "protoo-rs"
+version = "0.1.0"
+
+[dependencies]
+serde = { version = "1.0", features = [ "derive" ] }
+serde_json = "1.0"
+
+async-std = "1.5.0"
+async-tungstenite =  "*"
+futures = "0.3.4"
+tungstenite = "0.10.1"
+
+
