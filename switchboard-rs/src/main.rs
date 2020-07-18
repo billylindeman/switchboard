@@ -4,6 +4,8 @@ use glib::prelude::*;
 
 use log::*;
 
+
+pub mod room;
 pub mod peer;
 pub mod signal;
 

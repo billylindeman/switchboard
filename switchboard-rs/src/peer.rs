@@ -15,46 +15,24 @@ pub enum PeerMsg {
     OnSDPOfferCreated{ offer: String },
 }
 
-pub struct Peer {
-    pub id: i64,
-    pub pipeline: gst::Pipeline,
+pub struct PeerConnection {
+    pub id: u64,
     pub webrtcbin: gst::Element,
 }
 
-impl Peer {
-    pub fn new(peer_id: i64) -> Result<Peer, Error> { 
-        let pipeline = gst::Pipeline::new(Some(&format!("peer{}", peer_id)));
-
+impl PeerConnection {
+    pub fn new(pipeline: &gst::Pipeline, peer_id: u64) -> Result<PeerConnection, Error> { 
         let webrtcbin = gst::ElementFactory::make(
             "webrtcbin",
             Some(&format!("peer{}webrtcbin", peer_id))
-        ).or(Err(format_err!("Error creating webrtcbin")))?;
+        )?;
 
-        let bus = pipeline.get_bus().unwrap();
-        bus.add_signal_watch();
-        bus.connect_message(move |_, msg| {
-            use gst::MessageView;
+        pipeline.add_many(&[
+            &webrtcbin
+        ])?;
 
-            match msg.view() {
-                MessageView::StateChanged(s) => debug!("state changed: {} {:?}", s.get_src().unwrap().get_name(), s),
-                MessageView::Eos(..) => (),
-                MessageView::Warning(warn) =>{
-                    warn!("{} {:?} ", warn.get_error(), warn.get_debug());
-                },
-                MessageView::Error(err) => {
-                    error!("{} {:?} ", err.get_error(), err.get_debug());
-                    panic!("Pipeline Broken");
-                },
-                MessageView::Info(info) => {
-                    info!("{} {:?} ", info.get_error(), info.get_debug());
-                },
-                _ => (),
-            }
-        });
-
-        Ok(Peer{
+        Ok(PeerConnection{
             id: peer_id,
-            pipeline: pipeline,
             webrtcbin: webrtcbin,
         })
     }

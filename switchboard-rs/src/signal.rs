@@ -13,6 +13,8 @@ use jsonrpc_ws_server::{ServerBuilder,RequestContext};
 use jsonrpc_pubsub::typed;
 use jsonrpc_pubsub::{PubSubHandler, Session, SubscriptionId};
 
+use crate::room;
+
 #[derive(Serialize,Deserialize,Debug)]
 pub enum RoomEvent {
     StreamAdd { uuid: Uuid },
@@ -67,26 +69,29 @@ pub trait SignalService {
 }
 
 
+
 #[derive(Default)]
 pub struct Server {
     uid: atomic::AtomicUsize,
 	active: Arc<RwLock<HashMap<SubscriptionId, typed::Sink<RoomEvent>>>>,
+    rooms: room::RoomController,
 }
+
 
 impl SignalService for Server {
 	type Metadata = Arc<Session>;
 
-	fn room_join(&self, _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: u64) {
-		if room_id != 10 {
-			subscriber
-				.reject(Error {
-					code: ErrorCode::InvalidParams,
-					message: "Rejecting subscription - invalid parameters provided.".into(),
-					data: None,
-				})
-				.unwrap();
-			return;
-		}
+	fn room_join(&self, _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: Uuid) {
+        let room = self.rooms.get_or_create_room(room_id);
+
+//			subscriber
+//				.reject(Error {
+//					code: ErrorCode::InvalidParams,
+//					message: "Rejecting subscription - invalid parameters provided.".into(),
+//					data: None,
+//				})
+//				.unwrap();
+//			return;
 
 		let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
 		let sub_id = SubscriptionId::Number(id as u64);
