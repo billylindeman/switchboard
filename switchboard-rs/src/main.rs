@@ -8,7 +8,7 @@ use log::*;
 pub mod room;
 pub mod peer;
 pub mod signal;
-pub mod sfu;
+//pub mod sfu;
 
 fn main() {
     pretty_env_logger::init();
