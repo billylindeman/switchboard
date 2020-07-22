@@ -1,5 +1,6 @@
 use uuid::Uuid;
 use serde::{Serialize,Deserialize};
+use serde_json::{Map};
 
 use std::collections::{HashMap};
 use std::thread;
@@ -7,7 +8,8 @@ use std::sync::{atomic, Arc, RwLock};
 
 use log::*;
 
-use jsonrpc_core::futures::Future;
+use jsonrpc_core::futures::{Future};
+use jsonrpc_core::futures::future::{self, FutureResult};
 use jsonrpc_core::{Result, Error, ErrorCode};
 use jsonrpc_derive::rpc;
 use jsonrpc_ws_server::{ServerBuilder,RequestContext};
@@ -47,26 +49,34 @@ pub struct SubscribeReply{
     pub answer: String,
 }
 
+
+#[derive(Serialize,Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum SDP {
+    Offer{ sdp: String },
+    Answer{ sdp: String},
+}
+
 #[rpc]
 pub trait SignalService {
     type Metadata;
     
 	/// Join room 
 	#[pubsub(subscription = "room", subscribe, name = "room_join")]
-	fn room_join(&mut self, meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: Uuid);
+	fn room_join(&self, meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: Uuid);
 
 	/// Leave room
 	#[pubsub(subscription = "room", unsubscribe, name = "room_leave")]
-	fn room_leave(&mut self, meta: Option<Self::Metadata>, subscription: SubscriptionId) -> Result<bool>;
+	fn room_leave(&self, meta: Option<Self::Metadata>, subscription: SubscriptionId) -> Result<bool>;
 
     #[rpc(meta, name = "stream_list")]
     fn stream_list(&self, meta: Self::Metadata) -> Result<Vec<String>>;
 
 	#[rpc(meta, name = "stream_publish")]
-	fn stream_publish(&self, meta: Self::Metadata, offer: String) -> Result<PublishReply>;
+	fn stream_publish(&self, meta: Self::Metadata, stream_id: String, sdp: SDP) -> FutureResult<PublishReply, Error>;
 
     #[rpc(meta, name = "stream_subscribe")]
-	fn stream_subscribe(&self, meta: Self::Metadata, offer: String) -> Result<SubscribeRequest>;
+	fn stream_subscribe(&self, meta: Self::Metadata, sdp: SDP) -> Result<SubscribeRequest>;
 
 }
 
@@ -88,17 +98,17 @@ pub struct Server {
     uid: atomic::AtomicUsize,
 	active: Arc<RwLock<HashMap<SubscriptionId, typed::Sink<RoomEvent>>>>,
     rooms: room::RoomController,
-    presence: HashMap<Uuid, Arc<RwLock<room::Room>>>,
+    presence: Arc<RwLock<HashMap<Uuid, Arc<RwLock<room::Room>>>>>,
 }
 
 
 impl SignalService for Server {
 	type Metadata = Session;
 
-	fn room_join(&mut self, mut _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: Uuid) {
+	fn room_join(&self, mut _meta: Self::Metadata, subscriber: typed::Subscriber<RoomEvent>, room_id: Uuid) {
         info!("room_join: {}", room_id);
 
-        if let Some(room) = self.presence.get(&_meta.id) {
+        if let Some(_) = self.presence.read().unwrap().get(&_meta.id) {
             subscriber.reject(
                 Error {
                     code: ErrorCode::InvalidParams,
@@ -110,7 +120,7 @@ impl SignalService for Server {
         }
 
         let room = self.rooms.get_or_create_room(room_id);
-        self.presence.insert(_meta.id, room.clone());
+        self.presence.write().unwrap().insert(_meta.id, room.clone());
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
 		let sub_id = SubscriptionId::Number(id as u64);
@@ -118,11 +128,11 @@ impl SignalService for Server {
 		self.active.write().unwrap().insert(sub_id, sink);
 	}
 
-	fn room_leave(&mut self, _meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
+	fn room_leave(&self, _meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
 		let removed = self.active.write().unwrap().remove(&id);
 		if removed.is_some() {
             if let Some(meta) = _meta {
-                self.presence.remove(&meta.id);
+                self.presence.write().unwrap().remove(&meta.id);
             }
 			Ok(true)
 		} else {
@@ -138,16 +148,23 @@ impl SignalService for Server {
         Ok([].into())
     }
 
-	fn stream_publish(&self, _meta: Self::Metadata, offer: String) -> Result<PublishReply> {
-        if let Some(room) = self.presence.get(&_meta.id) {
-            let (broadcast_id, peer) = room.write().unwrap().publish(offer).unwrap();
+	fn stream_publish(&self, _meta: Self::Metadata, stream_id: String, sdp: SDP) -> FutureResult<PublishReply, Error> {
+        if let SDP::Offer{sdp} = sdp {
+
+            debug!("got sdp {}", sdp);
+            if let Some(room) = self.presence.read().unwrap().get(&_meta.id) {
+                let (broadcast_id, peer) = room.write().unwrap().publish(sdp).unwrap();
+                debug!("created broadcast: {}", broadcast_id);
+
+                return future::finished(PublishReply{media_id: broadcast_id, answer: "".to_owned()})
+            }
 
         }
 
-        Err(Error::internal_error())
+        future::failed(Error::internal_error())
     }
 
-	fn stream_subscribe(&self, _meta: Self::Metadata, offer: String) -> Result<SubscribeRequest> {
+	fn stream_subscribe(&self, _meta: Self::Metadata, sdp: SDP) -> Result<SubscribeRequest> {
         Err(Error::internal_error())
     }
 
