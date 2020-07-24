@@ -51,35 +51,45 @@ impl PeerConnection {
                 debug!("starting negotiation");
 
                 let promise = gst::Promise::new_with_change_func(enc!( (_webrtc, tx) move |reply| {
-                    let reply = match reply {
+                    let reply = match reply { 
                         Ok(reply) => reply,
-                        Err(err) => {
-                           return format_err!("Offer creation future got no reponse: {:?}", err);
-                        }
+                        Err(err) => return gst_element_error!(
+                            _webrtc,
+                            gst::LibraryError::Failed,
+                            ("Failed to create offer: {:?}", err)
+                        )
                     };
-           
-                   let offer = reply
-                       .get_value("offer")
-                       .unwrap()
-                       .get::<gst_webrtc::WebRTCSessionDescription>()
-                       .expect("Invalid argument")
-                       .unwrap();
 
-                  _webrtc 
-                       .unwrap()
-                       .emit("set-local-description", &[&offer, &None::<gst::Promise>])
-                       .unwrap();
+                    let offer = reply
+                        .get_value("offer")
+                        .unwrap()
+                        .get::<gst_webrtc::WebRTCSessionDescription>()
+                        .expect("Invalid argument")
+                        .unwrap();
+
+                    _webrtc 
+                        .unwrap()
+                        .emit("set-local-description", &[&offer, &None::<gst::Promise>])
+                        .unwrap();
        
-                   println!(
+                    println!(
                        "sending SDP offer to peer: {}",
                        offer.get_sdp().as_text().unwrap()
-                   );
+                    );
+ 
+                    let message = PeerEvent::OnOfferCreated{
+                        offer: offer.get_sdp().as_text().unwrap(),
+                    };
 
-                   let message = PeerEvent::OnOfferCreated{
-                       offer: offer.get_sdp().as_text().unwrap(),
-                   };
-                   tx.send(message);
-
+                    let res = tx.send(message);
+                    match res {
+                        Ok(_) => None,
+                        Err(err) => gst_element_error!(
+                            _webrtc,
+                            gst::LibraryError::Failed,
+                            ("Failed to send SDP Offer {:?}", err)
+                        )
+                    }
                 }));
 
                 webrtcbin
@@ -137,12 +147,12 @@ impl PeerConnection {
             SDP::Offer{sdp} => {(
                 gst_webrtc::WebRTCSDPType::Offer,
                 gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
-                    .or(format_err!("Failed to parse SDP offer"))?
+                    .or(Err(format_err!("Failed to parse SDP offer")))?
             )}
             SDP::Answer{sdp} => {(
                 gst_webrtc::WebRTCSDPType::Answer,
                 gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
-                    .or(format_err!("Failed to parse SDP answer"))?
+                    .or(Err(format_err!("Failed to parse SDP answer")))?
             )}
         };
 
@@ -158,13 +168,16 @@ impl PeerConnection {
 
     pub fn create_answer(&self) -> Result<(), Error> {
         let tx = self.tx.clone();
+        let _webrtc = self.webrtcbin.clone();
 
         let promise = gst::Promise::new_with_change_func(move |reply| {
-            let reply = match reply {
+            let reply = match reply { 
                 Ok(reply) => reply,
-                Err(err) => {
-                    return format_err!("Answer creation future got no reponse: {:?}", err);
-                }
+                Err(err) => return gst_element_error!(
+                    _webrtc,
+                    gst::LibraryError::Failed,
+                    ("Failed to create answer: {:?}", err)
+                )
             };
 
             let answer = reply
@@ -179,10 +192,18 @@ impl PeerConnection {
                 .unwrap();
         
             let message = PeerEvent::OnAnswerCreated {
-                answer: answer.get_sdp().as_text()?,
+                answer: answer.get_sdp().as_text().unwrap(),
             };
 
-            tx.send(message)?
+            let res = tx.send(message);
+            match res {
+                Ok(_) => None,
+                Err(err) => gst_element_error!(
+                    _webrtc,
+                    gst::LibraryError::Failed,
+                    ("Failed to send answer: {:?}", err)
+                )
+            }
         });
 
         self.webrtcbin

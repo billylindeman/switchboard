@@ -82,5 +82,6 @@ impl SFU {
         }
 
         Err(format_err!("broadcast not found {}", broadcast_id))
+
     }
 }
