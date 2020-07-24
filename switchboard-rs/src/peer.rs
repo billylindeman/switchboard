@@ -1,7 +1,6 @@
 use gst::prelude::*;
 use gst::gst_element_error;
-
-use gst_video::prelude::*;
+use gst_webrtc::prelude::*;
 
 use uuid::Uuid;
 
@@ -10,23 +9,26 @@ use enclose::enc;
 
 use std::result::Result;
 use failure::{Error, format_err};
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, Sender};
+
+use crate::signal;
 
 use log::*;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 
-pub enum PeerMsg {
-    AddIceCandidate{ sdp_mline_index: u32, candidate: String },
+pub enum PeerEvent {
     OnIceCandidateCreated { sdp_mline_index: u32, candidate: String },
+    OnOfferCreated{ offer: String },
+    OnAnswerCreated{ answer: String},
 
-    SetRemoteDescription{ offer: String },
-    OnSDPOfferCreated{ offer: String },
+    OnStreamAdded{},
 }
 
 pub struct PeerConnection {
     pub id: Uuid,
     pub webrtcbin: gst::Element,
+    tx: Sender<PeerEvent>, 
 }
 
 impl PeerConnection {
@@ -37,7 +39,7 @@ impl PeerConnection {
             Some(&format!("peer{}webrtcbin", peer_id))
         )?;
 
-        let (tx, rx) = bounded::<PeerMsg>(1);
+        let (tx, rx) = bounded::<PeerEvent>(1);
 
         webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
         webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
@@ -48,22 +50,41 @@ impl PeerConnection {
                 let _webrtc = values[0].get::<gst::Element>().unwrap();
                 debug!("starting negotiation");
 
-                let promise = gst::Promise::new_with_change_func(move |reply| {
+                let promise = gst::Promise::new_with_change_func(enc!( (_webrtc, tx) move |reply| {
+                    let reply = match reply {
+                        Ok(reply) => reply,
+                        Err(err) => {
+                           return format_err!("Offer creation future got no reponse: {:?}", err);
+                        }
+                    };
+           
+                   let offer = reply
+                       .get_value("offer")
+                       .unwrap()
+                       .get::<gst_webrtc::WebRTCSessionDescription>()
+                       .expect("Invalid argument")
+                       .unwrap();
 
-                    if let Err(err) = peer.on_offer_created(reply) {
-                        gst_element_error!(
-                            peer.bin,
-                            gst::LibraryError::Failed,
-                            ("Failed to send SDP offer: {:?}", err)
-                        );
-                    }
-                });
+                  _webrtc 
+                       .unwrap()
+                       .emit("set-local-description", &[&offer, &None::<gst::Promise>])
+                       .unwrap();
+       
+                   println!(
+                       "sending SDP offer to peer: {}",
+                       offer.get_sdp().as_text().unwrap()
+                   );
 
-        self.webrtcbin
-            .emit("create-offer", &[&None::<gst::Structure>, &promise])
-            .unwrap();
+                   let message = PeerEvent::OnOfferCreated{
+                       offer: offer.get_sdp().as_text().unwrap(),
+                   };
+                   tx.send(message);
 
- 
+                }));
+
+                webrtcbin
+                    .emit("create-offer", &[&None::<gst::Structure>, &promise])
+                    .unwrap();
 
                 None
             }))
@@ -80,7 +101,7 @@ impl PeerConnection {
                     .expect("Invalid argument")
                     .unwrap();
 
-                let res = tx.send(PeerMsg::OnIceCandidateCreated{
+                let res = tx.send(PeerEvent::OnIceCandidateCreated{
                     sdp_mline_index: mlineindex,
                     candidate,
                 });
@@ -104,7 +125,78 @@ impl PeerConnection {
         Ok(PeerConnection{
             id: peer_id,
             webrtcbin: webrtcbin,
+            tx: tx,
         })
     }
+    
+
+    pub fn set_remote_description(&self, sdp: signal::SDP) -> Result<(), Error> {
+        use signal::SDP;
+
+        let (sdp_type, sdp_msg) = match sdp {
+            SDP::Offer{sdp} => {(
+                gst_webrtc::WebRTCSDPType::Offer,
+                gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
+                    .or(format_err!("Failed to parse SDP offer"))?
+            )}
+            SDP::Answer{sdp} => {(
+                gst_webrtc::WebRTCSDPType::Answer,
+                gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
+                    .or(format_err!("Failed to parse SDP answer"))?
+            )}
+        };
+
+        let gst_sdp = gst_webrtc::WebRTCSessionDescription::new(sdp_type, sdp_msg);
+
+        self.webrtcbin
+            .emit("set-remote-description", &[&gst_sdp, &None::<gst::Promise>])
+            .unwrap();
+
+        Ok(())
+    }
+
+
+    pub fn create_answer(&self) -> Result<(), Error> {
+        let tx = self.tx.clone();
+
+        let promise = gst::Promise::new_with_change_func(move |reply| {
+            let reply = match reply {
+                Ok(reply) => reply,
+                Err(err) => {
+                    return format_err!("Answer creation future got no reponse: {:?}", err);
+                }
+            };
+
+            let answer = reply
+                .get_value("answer")
+                .unwrap()
+                .get::<gst_webrtc::WebRTCSessionDescription>()
+                .expect("Invalid argument")
+                .unwrap();
+
+            self.webrtcbin
+                .emit("set-local-description", &[&answer, &None::<gst::Promise>])
+                .unwrap();
+        
+            let message = PeerEvent::OnAnswerCreated {
+                answer: answer.get_sdp().as_text()?,
+            };
+
+            tx.send(message)?
+        });
+
+        self.webrtcbin
+            .emit("create-answer", &[&None::<gst::Structure>, &promise])?;
+
+        Ok(())
+    }
+
+    pub fn add_ice_candidate(&self, sdp_mline_index: u32, candidate: String) -> Result<(), Error> {
+        self.webrtcbin
+            .emit("add-ice-candidate", &[&sdp_mline_index, &candidate])?;
+        Ok(())
+    }
+
+
 }
 
