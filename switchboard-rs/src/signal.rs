@@ -62,7 +62,7 @@ pub trait SignalService {
     #[pubsub(subscription = "room", subscribe, name = "room_join")]
     fn room_join(
         &self,
-        meta: Self::Metadata,
+        session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
         room_id: Uuid,
     );
@@ -71,22 +71,22 @@ pub trait SignalService {
     #[pubsub(subscription = "room", unsubscribe, name = "room_leave")]
     fn room_leave(
         &self,
-        meta: Option<Self::Metadata>,
+        session: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
     #[rpc(meta, name = "stream_list")]
-    fn stream_list(&self, meta: Self::Metadata) -> Result<Vec<String>>;
+    fn stream_list(&self, session: Self::Metadata) -> Result<Vec<String>>;
 
     #[rpc(meta, name = "stream_publish")]
     fn stream_publish(
         &self,
-        meta: Self::Metadata,
+        session: Self::Metadata,
         stream_id: String,
         sdp: SDP,
     ) -> FutureResult<PublishReply, Error>;
 
     #[rpc(meta, name = "stream_subscribe")]
-    fn stream_subscribe(&self, meta: Self::Metadata, sdp: SDP) -> Result<SubscribeReply>;
+    fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply>;
 }
 
 type PeerID = Uuid;
@@ -107,7 +107,6 @@ impl PubSubMetadata for Session {
 
 #[derive(Default)]
 pub struct Server {
-    uid: atomic::AtomicUsize,
     active: Arc<RwLock<HashMap<SubscriptionId, typed::Sink<RoomEvent>>>>,
     routers: router::RouterMap,
     presence: Arc<RwLock<HashMap<PeerID, Arc<RwLock<router::Router>>>>>,
@@ -118,13 +117,13 @@ impl SignalService for Server {
 
     fn room_join(
         &self,
-        mut _meta: Self::Metadata,
+        session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
         room_id: RoomID,
     ) {
         info!("room_join: {}", room_id);
 
-        if let Some(_) = self.presence.read().unwrap().get(&_meta.peer_id) {
+        if let Some(_) = self.presence.read().unwrap().get(&session.peer_id) {
             subscriber
                 .reject(Error {
                     code: ErrorCode::InvalidParams,
@@ -139,19 +138,18 @@ impl SignalService for Server {
         self.presence
             .write()
             .unwrap()
-            .insert(_meta.peer_id, router.clone());
+            .insert(session.peer_id, router.clone());
 
-        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
-        let sub_id = SubscriptionId::String(room_id.to_string());
+        let sub_id = SubscriptionId::String(session.peer_id.to_string());
         let sink = subscriber.assign_id(sub_id.clone()).unwrap();
         self.active.write().unwrap().insert(sub_id, sink);
     }
 
-    fn room_leave(&self, _meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
+    fn room_leave(&self, session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
         let removed = self.active.write().unwrap().remove(&id);
         if removed.is_some() {
-            if let Some(meta) = _meta {
-                self.presence.write().unwrap().remove(&meta.peer_id);
+            if let Some(session) = session {
+                self.presence.write().unwrap().remove(&session.peer_id);
             }
             Ok(true)
         } else {
@@ -163,19 +161,19 @@ impl SignalService for Server {
         }
     }
 
-    fn stream_list(&self, meta: Self::Metadata) -> Result<Vec<String>> {
+    fn stream_list(&self, session: Self::Metadata) -> Result<Vec<String>> {
         Ok([].into())
     }
 
     fn stream_publish(
         &self,
-        _meta: Self::Metadata,
+        session: Self::Metadata,
         stream_id: String,
         sdp: SDP,
     ) -> FutureResult<PublishReply, Error> {
         if let SDP::Offer { sdp } = sdp {
             debug!("got sdp {}", sdp);
-            if let Some(room) = self.presence.read().unwrap().get(&_meta.peer_id) {
+            if let Some(room) = self.presence.read().unwrap().get(&session.peer_id) {
                 let (broadcast_id, peer) = room.write().unwrap().publish(sdp).unwrap();
                 debug!("created broadcast: {}", broadcast_id);
 
@@ -189,7 +187,7 @@ impl SignalService for Server {
         future::failed(Error::internal_error())
     }
 
-    fn stream_subscribe(&self, _meta: Self::Metadata, sdp: SDP) -> Result<SubscribeReply> {
+    fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply> {
         Err(Error::internal_error())
     }
 }
