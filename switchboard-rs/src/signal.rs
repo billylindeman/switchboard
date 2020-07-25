@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{atomic, Arc, RwLock};
 use std::thread;
 
+use failure::*;
 use log::*;
 
 use jsonrpc_core::futures::future::{self, FutureResult};
@@ -121,7 +122,7 @@ impl SignalService for Server {
         subscriber: typed::Subscriber<RoomEvent>,
         room_id: RoomID,
     ) {
-        info!("room_join: {}", room_id);
+        info!("[peer {}] room_join: {}", session.peer_id, room_id);
 
         if let Some(_) = self.presence.read().unwrap().get(&session.peer_id) {
             subscriber
@@ -148,9 +149,14 @@ impl SignalService for Server {
     fn room_leave(&self, session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
         let removed = self.active.write().unwrap().remove(&id);
         if removed.is_some() {
-            if let Some(session) = session {
-                self.presence.write().unwrap().remove(&session.peer_id);
+            if let SubscriptionId::String(peer_id) = id {
+                info!("[peer {}] left room", peer_id);
+                self.presence
+                    .write()
+                    .unwrap()
+                    .remove(&Uuid::parse_str(&peer_id).unwrap());
             }
+
             Ok(true)
         } else {
             Err(Error {
