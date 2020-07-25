@@ -85,8 +85,6 @@ impl Room {
         self.peers.insert(stream_id, peer.clone());
         self.broadcasts.insert(stream_id);
 
-
-
         Ok((stream_id, peer))
     }
 
