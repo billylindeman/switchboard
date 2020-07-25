@@ -12,21 +12,22 @@ use std::sync::{Arc, RwLock};
 use crate::peer::PeerConnection;
 
 #[derive(Default)]
-pub struct RoomController(HashMap<Uuid, Arc<RwLock<Room>>>);
+pub struct RouterMap(Arc<HashMap<Uuid, Arc<RwLock<Router>>>>);
 
-impl RoomController {
-    pub fn get_or_create_room(&self, uuid: Uuid) -> Arc<RwLock<Room>> {
+impl RouterMap {
+    pub fn get_or_create_router(&self, uuid: Uuid) -> Arc<RwLock<Router>> {
         match self.0.get(&uuid) {
             Some(room) => room.clone(),
             _ => {
-                let room = Arc::new(RwLock::new(Room::new(uuid).expect("error creating room")));
+                let room = Arc::new(RwLock::new(Router::new(uuid).expect("error creating room")));
                 room
             }
         }
     }
 }
-
-pub struct Room {
+/// The Router is responsible for managing a gstreamer pipeline and connecting / disconnecting
+/// all respective webrtcbins (representing PeerConnections)
+pub struct Router {
     pub id: Uuid,
     pub pipeline: gst::Pipeline,
 
@@ -36,9 +37,9 @@ pub struct Room {
     pub subscriptions: HashMap<Uuid, Uuid>, //subscription_id, peer_id
 }
 
-impl Room {
-    pub fn new(room_id: Uuid) -> Result<Room, Error> {
-        let pipeline = gst::Pipeline::new(Some(&format!("RoomPipeline{}", room_id)));
+impl Router {
+    pub fn new(room_id: Uuid) -> Result<Router, Error> {
+        let pipeline = gst::Pipeline::new(Some(&format!("RouterPipeline{}", room_id)));
 
         // Asynchronously set the pipeline to Playing
         pipeline
@@ -69,7 +70,7 @@ impl Room {
             }
         });
 
-        Ok(Room {
+        Ok(Router {
             id: room_id,
             pipeline: pipeline,
             peers: HashMap::new(),
@@ -84,14 +85,6 @@ impl Room {
 
         self.peers.insert(stream_id, peer.clone());
         self.broadcasts.insert(stream_id);
-
-        async_std::task::spawn(enc!( (rx, peer) async move || {
-            loop {
-              match rx.recv() {
-
-                }
-            }
-        }));
 
         Ok((stream_id, peer))
     }

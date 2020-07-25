@@ -1,9 +1,6 @@
 use log::*;
 
-pub mod room;
-pub mod peer;
-pub mod signal;
-//pub mod sfu;
+use switchboard::signal;
 
 fn main() {
     pretty_env_logger::init();

@@ -17,30 +17,28 @@ use jsonrpc_ws_server::{RequestContext, ServerBuilder};
 use jsonrpc_pubsub::typed;
 use jsonrpc_pubsub::{PubSubHandler, PubSubMetadata, SubscriptionId};
 
-use crate::room;
+use crate::peer;
+use crate::router;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RoomEvent {
-    StreamAdd { uuid: Uuid },
-    StreamRemove { uuid: Uuid },
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PublishRequest {
-    pub request_id: Uuid,
-    pub offer: String,
+    StreamAdd {
+        uuid: Uuid,
+    },
+    StreamRemove {
+        uuid: Uuid,
+    },
+    PeerMsg {
+        to: Uuid,
+        from: Uuid,
+        event: peer::PeerEvent,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PublishReply {
     pub media_id: Uuid,
     pub answer: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SubscribeRequest {
-    pub media_id: Uuid,
-    pub offer: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -88,14 +86,18 @@ pub trait SignalService {
     ) -> FutureResult<PublishReply, Error>;
 
     #[rpc(meta, name = "stream_subscribe")]
-    fn stream_subscribe(&self, meta: Self::Metadata, sdp: SDP) -> Result<SubscribeRequest>;
+    fn stream_subscribe(&self, meta: Self::Metadata, sdp: SDP) -> Result<SubscribeReply>;
 }
+
+type PeerID = Uuid;
+type RoomID = Uuid;
 
 #[derive(Clone)]
 pub struct Session {
     session: Arc<jsonrpc_pubsub::Session>,
-    id: Uuid,
+    peer_id: PeerID,
 }
+
 impl jsonrpc_core::Metadata for Session {}
 impl PubSubMetadata for Session {
     fn session(&self) -> Option<Arc<jsonrpc_pubsub::Session>> {
@@ -107,8 +109,8 @@ impl PubSubMetadata for Session {
 pub struct Server {
     uid: atomic::AtomicUsize,
     active: Arc<RwLock<HashMap<SubscriptionId, typed::Sink<RoomEvent>>>>,
-    rooms: room::RoomController,
-    presence: Arc<RwLock<HashMap<Uuid, Arc<RwLock<room::Room>>>>>,
+    routers: router::RouterMap,
+    presence: Arc<RwLock<HashMap<PeerID, Arc<RwLock<router::Router>>>>>,
 }
 
 impl SignalService for Server {
@@ -118,11 +120,11 @@ impl SignalService for Server {
         &self,
         mut _meta: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
-        room_id: Uuid,
+        room_id: RoomID,
     ) {
         info!("room_join: {}", room_id);
 
-        if let Some(_) = self.presence.read().unwrap().get(&_meta.id) {
+        if let Some(_) = self.presence.read().unwrap().get(&_meta.peer_id) {
             subscriber
                 .reject(Error {
                     code: ErrorCode::InvalidParams,
@@ -133,14 +135,14 @@ impl SignalService for Server {
             return;
         }
 
-        let room = self.rooms.get_or_create_room(room_id);
+        let router = self.routers.get_or_create_router(room_id);
         self.presence
             .write()
             .unwrap()
-            .insert(_meta.id, room.clone());
+            .insert(_meta.peer_id, router.clone());
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
-        let sub_id = SubscriptionId::Number(id as u64);
+        let sub_id = SubscriptionId::String(room_id.to_string());
         let sink = subscriber.assign_id(sub_id.clone()).unwrap();
         self.active.write().unwrap().insert(sub_id, sink);
     }
@@ -149,7 +151,7 @@ impl SignalService for Server {
         let removed = self.active.write().unwrap().remove(&id);
         if removed.is_some() {
             if let Some(meta) = _meta {
-                self.presence.write().unwrap().remove(&meta.id);
+                self.presence.write().unwrap().remove(&meta.peer_id);
             }
             Ok(true)
         } else {
@@ -173,7 +175,7 @@ impl SignalService for Server {
     ) -> FutureResult<PublishReply, Error> {
         if let SDP::Offer { sdp } = sdp {
             debug!("got sdp {}", sdp);
-            if let Some(room) = self.presence.read().unwrap().get(&_meta.id) {
+            if let Some(room) = self.presence.read().unwrap().get(&_meta.peer_id) {
                 let (broadcast_id, peer) = room.write().unwrap().publish(sdp).unwrap();
                 debug!("created broadcast: {}", broadcast_id);
 
@@ -187,7 +189,7 @@ impl SignalService for Server {
         future::failed(Error::internal_error())
     }
 
-    fn stream_subscribe(&self, _meta: Self::Metadata, sdp: SDP) -> Result<SubscribeRequest> {
+    fn stream_subscribe(&self, _meta: Self::Metadata, sdp: SDP) -> Result<SubscribeReply> {
         Err(Error::internal_error())
     }
 }
@@ -212,7 +214,7 @@ impl Server {
         });
 
         let builder = ServerBuilder::with_meta_extractor(io, |context: &RequestContext| Session {
-            id: Uuid::new_v4(),
+            peer_id: Uuid::new_v4(),
             session: Arc::new(jsonrpc_pubsub::Session::new(context.sender().clone())),
         });
 

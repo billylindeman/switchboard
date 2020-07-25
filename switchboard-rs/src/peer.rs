@@ -1,6 +1,7 @@
 use gst::prelude::*;
 use gst::gst_element_error;
 use gst_webrtc::prelude::*;
+use serde::{Serialize,Deserialize};
 
 use uuid::Uuid;
 
@@ -17,6 +18,7 @@ use log::*;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 
+#[derive(Serialize,Deserialize,Debug)]
 pub enum PeerEvent {
     OnIceCandidateCreated { sdp_mline_index: u32, candidate: String },
     OnOfferCreated{ offer: String },
