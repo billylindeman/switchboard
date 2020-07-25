@@ -47,17 +47,20 @@ impl PeerConnection {
 
         webrtcbin
             .connect("on-negotiation-needed", false, enc!( (tx) move |values| {
-                let _webrtc = values[0].get::<gst::Element>().unwrap();
+                let _webrtc = values[0].get::<gst::Element>().unwrap().unwrap();
                 debug!("starting negotiation");
 
                 let promise = gst::Promise::new_with_change_func(enc!( (_webrtc, tx) move |reply| {
                     let reply = match reply { 
                         Ok(reply) => reply,
-                        Err(err) => return gst_element_error!(
-                            _webrtc,
-                            gst::LibraryError::Failed,
-                            ("Failed to create offer: {:?}", err)
-                        )
+                        Err(err) => {
+                            gst_element_error!(
+                                _webrtc,
+                                gst::LibraryError::Failed,
+                                ("Failed to create offer: {:?}", err)
+                            );
+                            return;
+                        }
                     };
 
                     let offer = reply
@@ -68,7 +71,6 @@ impl PeerConnection {
                         .unwrap();
 
                     _webrtc 
-                        .unwrap()
                         .emit("set-local-description", &[&offer, &None::<gst::Promise>])
                         .unwrap();
        
@@ -82,17 +84,18 @@ impl PeerConnection {
                     };
 
                     let res = tx.send(message);
-                    match res {
-                        Ok(_) => None,
-                        Err(err) => gst_element_error!(
+
+                    if let Err(err) = res {
+                        gst_element_error!(
                             _webrtc,
                             gst::LibraryError::Failed,
                             ("Failed to send SDP Offer {:?}", err)
-                        )
+                        );
                     }
+
                 }));
 
-                webrtcbin
+                _webrtc 
                     .emit("create-offer", &[&None::<gst::Structure>, &promise])
                     .unwrap();
 
@@ -104,7 +107,7 @@ impl PeerConnection {
         // Connect crossbeam channel to webrtcbin hooks
         webrtcbin
             .connect("on-ice-candidate", false, enc!((tx) move |values| {
-                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
+                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument").unwrap();
                 let mlineindex = values[1].get_some::<u32>().expect("Invalid argument");
                 let candidate = values[2]
                     .get::<String>()
@@ -116,14 +119,15 @@ impl PeerConnection {
                     candidate,
                 });
 
-                match res {
-                    Ok(_) => None,
-                    Err(err) => gst_element_error!(
+                if let Err(err) = res {
+                    gst_element_error!(
                         _webrtc,
                         gst::LibraryError::Failed,
                         ("Failed to send ICE candidate: {:?}", err)
-                    )
+                    );
                 }
+
+                None
             }))
             .unwrap();
 
@@ -187,7 +191,7 @@ impl PeerConnection {
                 .expect("Invalid argument")
                 .unwrap();
 
-            self.webrtcbin
+            _webrtc 
                 .emit("set-local-description", &[&answer, &None::<gst::Promise>])
                 .unwrap();
         
@@ -196,14 +200,14 @@ impl PeerConnection {
             };
 
             let res = tx.send(message);
-            match res {
-                Ok(_) => None,
-                Err(err) => gst_element_error!(
+            if let Err(err) = res {
+                gst_element_error!(
                     _webrtc,
                     gst::LibraryError::Failed,
                     ("Failed to send answer: {:?}", err)
-                )
+                );
             }
+
         });
 
         self.webrtcbin
