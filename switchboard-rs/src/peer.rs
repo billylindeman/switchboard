@@ -9,7 +9,7 @@ use enclose::enc;
 
 use std::result::Result;
 use failure::{Error, format_err};
-use crossbeam_channel::{bounded, Sender};
+use crossbeam_channel::{bounded, Sender, Receiver};
 
 use crate::signal;
 
@@ -29,6 +29,7 @@ pub struct PeerConnection {
     pub id: Uuid,
     pub webrtcbin: gst::Element,
     tx: Sender<PeerEvent>, 
+    rx: Receiver<PeerEvent>,
 }
 
 impl PeerConnection {
@@ -140,6 +141,7 @@ impl PeerConnection {
             id: peer_id,
             webrtcbin: webrtcbin,
             tx: tx,
+            rx: rx,
         })
     }
     
@@ -222,6 +224,9 @@ impl PeerConnection {
         Ok(())
     }
 
-
+    /// get_channel returns a cloned Receiver<PeerEvent> for handling negotiation/signaling
+    pub fn get_channel(&self) -> Receiver<PeerEvent> {
+        self.rx.clone()
+    }
 }
 

@@ -85,6 +85,14 @@ impl Room {
         self.peers.insert(stream_id, peer.clone());
         self.broadcasts.insert(stream_id);
 
+        async_std::task::spawn(enc!( (rx, peer) async move || {
+            loop {
+              match rx.recv() {
+
+                }
+            }
+        }));
+
         Ok((stream_id, peer))
     }
 
