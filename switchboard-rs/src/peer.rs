@@ -5,6 +5,7 @@ use serde::{Serialize,Deserialize};
 
 use uuid::Uuid;
 
+use std::thread;
 
 use enclose::enc;
 
@@ -31,22 +32,33 @@ pub struct PeerConnection {
     pub id: Uuid,
     pub webrtcbin: gst::Element,
     tx: Sender<PeerEvent>, 
-    rx: Receiver<PeerEvent>,
+    //pub rx: Receiver<PeerEvent>,
 }
 
 impl PeerConnection {
     pub fn new(pipeline: &gst::Pipeline, peer_id: Uuid) -> Result<PeerConnection, Error> { 
 
+
         let webrtcbin = gst::ElementFactory::make(
             "webrtcbin",
-            Some(&format!("peer{}webrtcbin", peer_id))
+            Some(&format!("peer-{}-webrtcbin", peer_id))
         )?;
+        let queue_video = gst::ElementFactory::make(
+            "webrtcbin",
+            Some(&format!("peer-{}-audio", peer_id))
+        )?;
+        let queue_audio = gst::ElementFactory::make(
+            "webrtcbin",
+            Some(&format!("peer-{}-video", peer_id))
+        )?;
+
+        webrtcbin.link(&queue_video);
+        webrtcbin.link(&queue_audio);
 
         let (tx, rx) = bounded::<PeerEvent>(1);
 
         webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
         webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
-
 
         webrtcbin
             .connect("on-negotiation-needed", false, enc!( (tx) move |values| {
@@ -77,7 +89,7 @@ impl PeerConnection {
                         .emit("set-local-description", &[&offer, &None::<gst::Promise>])
                         .unwrap();
        
-                    println!(
+                    info!(
                        "sending SDP offer to peer: {}",
                        offer.get_sdp().as_text().unwrap()
                     );
@@ -139,17 +151,25 @@ impl PeerConnection {
             &webrtcbin
         ])?;
 
+
+        thread::spawn(move || {
+            while let msg = rx.recv() {
+                debug!("peerevent: {:#?}", msg);
+            }
+        });
+
         Ok(PeerConnection{
             id: peer_id,
             webrtcbin: webrtcbin,
             tx: tx,
-            rx: rx,
         })
     }
     
 
     pub fn set_remote_description(&self, sdp: signal::SDP) -> Result<(), Error> {
         use signal::SDP;
+
+        debug!("setting remote description: {:#?}", sdp);
 
         let (sdp_type, sdp_msg) = match sdp {
             SDP::Offer{sdp} => {(
@@ -179,6 +199,8 @@ impl PeerConnection {
         let _webrtc = self.webrtcbin.clone();
 
         let promise = gst::Promise::new_with_change_func(move |reply| {
+            trace!("create_answer promise called");
+
             let reply = match reply { 
                 Ok(reply) => reply,
                 Err(err) => return gst_element_error!(
@@ -226,9 +248,5 @@ impl PeerConnection {
         Ok(())
     }
 
-    /// get_channel returns a cloned Receiver<PeerEvent> for handling negotiation/signaling
-    pub fn get_channel(&self) -> Receiver<PeerEvent> {
-        self.rx.clone()
-    }
 }
 

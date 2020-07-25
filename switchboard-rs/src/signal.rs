@@ -9,10 +9,11 @@ use std::thread;
 use failure::*;
 use log::*;
 
-use jsonrpc_core::futures::future::{self, FutureResult};
-use jsonrpc_core::futures::Future;
+use jsonrpc_core::futures::future::{self, BoxFuture};
+use jsonrpc_core::futures::{lazy, Future};
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
+use jsonrpc_ws_server::tokio;
 use jsonrpc_ws_server::{RequestContext, ServerBuilder};
 
 use jsonrpc_pubsub::typed;
@@ -22,18 +23,11 @@ use crate::peer;
 use crate::router;
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum RoomEvent {
-    StreamAdd {
-        uuid: Uuid,
-    },
-    StreamRemove {
-        uuid: Uuid,
-    },
-    PeerMsg {
-        to: Uuid,
-        from: Uuid,
-        event: peer::PeerEvent,
-    },
+    StreamAdd { uuid: Uuid },
+    StreamRemove { uuid: Uuid },
+    PeerMsg { event: peer::PeerEvent },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -48,14 +42,14 @@ pub struct SubscribeReply {
     pub answer: String,
 }
 
-#[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum SDP {
     Offer { sdp: String },
     Answer { sdp: String },
 }
 
-#[rpc]
+#[rpc(server)]
 pub trait SignalService {
     type Metadata;
 
@@ -79,12 +73,7 @@ pub trait SignalService {
     fn stream_list(&self, session: Self::Metadata) -> Result<Vec<String>>;
 
     #[rpc(meta, name = "stream_publish")]
-    fn stream_publish(
-        &self,
-        session: Self::Metadata,
-        stream_id: String,
-        sdp: SDP,
-    ) -> FutureResult<PublishReply, Error>;
+    fn stream_publish(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<PublishReply, Error>;
 
     #[rpc(meta, name = "stream_subscribe")]
     fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply>;
@@ -146,7 +135,7 @@ impl SignalService for Server {
         self.active.write().unwrap().insert(sub_id, sink);
     }
 
-    fn room_leave(&self, session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
+    fn room_leave(&self, _session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
         let removed = self.active.write().unwrap().remove(&id);
         if removed.is_some() {
             if let SubscriptionId::String(peer_id) = id {
@@ -171,26 +160,26 @@ impl SignalService for Server {
         Ok([].into())
     }
 
-    fn stream_publish(
-        &self,
-        session: Self::Metadata,
-        stream_id: String,
-        sdp: SDP,
-    ) -> FutureResult<PublishReply, Error> {
-        if let SDP::Offer { sdp } = sdp {
-            debug!("got sdp {}", sdp);
-            if let Some(room) = self.presence.read().unwrap().get(&session.peer_id) {
-                let (broadcast_id, peer) = room.write().unwrap().publish(sdp).unwrap();
+    fn stream_publish(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<PublishReply, Error> {
+        if let SDP::Offer { sdp: _ } = sdp {
+            debug!("got sdp {:#?}", &sdp);
+            if let Some(router) = self.presence.read().unwrap().get(&session.peer_id) {
+                let (broadcast_id, peer) = router.write().unwrap().publish(sdp).unwrap();
                 debug!("created broadcast: {}", broadcast_id);
 
-                return future::finished(PublishReply {
-                    media_id: broadcast_id,
-                    answer: "".to_owned(),
-                });
+                return lazy(move || {
+                    debug!("bruh");
+
+                    future::ok(PublishReply {
+                        media_id: broadcast_id,
+                        answer: "".to_owned(),
+                    })
+                })
+                .boxed();
             }
         }
 
-        future::failed(Error::internal_error())
+        future::failed(Error::internal_error()).boxed()
     }
 
     fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply> {
@@ -202,6 +191,7 @@ impl Server {
     pub fn run() {
         let mut io = PubSubHandler::default();
         let rpc = Server::default();
+
         let active_subscriptions = rpc.active.clone();
         io.extend_with(rpc.to_delegate());
 

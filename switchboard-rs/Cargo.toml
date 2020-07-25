@@ -41,4 +41,6 @@ jsonrpc-ws-server = "14.2"
 jsonrpc-derive = "14.2"
 jsonrpc-pubsub = "14.2"
 
+tokio = "*"
+
 async-std = { version = "1.6.2" , features = ["unstable"] }

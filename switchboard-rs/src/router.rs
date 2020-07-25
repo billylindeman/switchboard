@@ -10,16 +10,18 @@ use std::result::Result;
 use std::sync::{Arc, RwLock};
 
 use crate::peer::PeerConnection;
+use crate::signal;
 
 #[derive(Default)]
-pub struct RouterMap(Arc<HashMap<Uuid, Arc<RwLock<Router>>>>);
+pub struct RouterMap(Arc<RwLock<HashMap<Uuid, Arc<RwLock<Router>>>>>);
 
 impl RouterMap {
     pub fn get_or_create_router(&self, uuid: Uuid) -> Arc<RwLock<Router>> {
-        match self.0.get(&uuid) {
+        match self.0.write().unwrap().get(&uuid) {
             Some(room) => room.clone(),
             _ => {
                 let room = Arc::new(RwLock::new(Router::new(uuid).expect("error creating room")));
+
                 room
             }
         }
@@ -79,12 +81,13 @@ impl Router {
         })
     }
 
-    pub fn publish(&mut self, offer: String) -> Result<(Uuid, Arc<PeerConnection>), Error> {
+    pub fn publish(&mut self, offer: signal::SDP) -> Result<(Uuid, Arc<PeerConnection>), Error> {
         let stream_id = Uuid::new_v4();
         let peer = Arc::new(PeerConnection::new(&self.pipeline, stream_id)?);
 
         self.peers.insert(stream_id, peer.clone());
         self.broadcasts.insert(stream_id);
+        peer.set_remote_description(offer)?;
 
         Ok((stream_id, peer))
     }
