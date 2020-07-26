@@ -43,17 +43,6 @@ impl PeerConnection {
             "webrtcbin",
             Some(&format!("peer-{}-webrtcbin", peer_id))
         )?;
-        let queue_video = gst::ElementFactory::make(
-            "webrtcbin",
-            Some(&format!("peer-{}-audio", peer_id))
-        )?;
-        let queue_audio = gst::ElementFactory::make(
-            "webrtcbin",
-            Some(&format!("peer-{}-video", peer_id))
-        )?;
-
-        webrtcbin.link(&queue_video);
-        webrtcbin.link(&queue_audio);
 
         let (tx, rx) = bounded::<PeerEvent>(1);
 
@@ -146,6 +135,10 @@ impl PeerConnection {
             }))
             .unwrap();
 
+        webrtcbin.connect_pad_added(move |_webrtc, pad| {
+            debug!("peer has incoming stream: {:?}", pad);
+        });
+
 
         pipeline.add_many(&[
             &webrtcbin
@@ -153,10 +146,11 @@ impl PeerConnection {
 
 
         thread::spawn(move || {
-            while let msg = rx.recv() {
+            while let Ok(msg) = rx.recv() {
                 debug!("peerevent: {:#?}", msg);
             }
         });
+
 
         Ok(PeerConnection{
             id: peer_id,
@@ -189,6 +183,8 @@ impl PeerConnection {
         self.webrtcbin
             .emit("set-remote-description", &[&gst_sdp, &None::<gst::Promise>])
             .unwrap();
+
+        self.webrtcbin.set_state(gst::State::Playing)?;
 
         Ok(())
     }
