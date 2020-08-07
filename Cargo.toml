@@ -2,5 +2,6 @@
 
 members = [
     "switchboard-rs",
+    "switchboard-web",
 ]
 
