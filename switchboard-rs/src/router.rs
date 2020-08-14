@@ -34,9 +34,6 @@ pub struct Router {
     pub pipeline: gst::Pipeline,
 
     pub peers: HashMap<Uuid, Arc<PeerConnection>>,
-
-    pub broadcasts: HashSet<Uuid>,          //broadcast_id
-    pub subscriptions: HashMap<Uuid, Uuid>, //subscription_id, peer_id
 }
 
 impl Router {
@@ -76,34 +73,13 @@ impl Router {
             id: room_id,
             pipeline: pipeline,
             peers: HashMap::new(),
-            broadcasts: HashSet::new(),
-            subscriptions: HashMap::new(),
         })
     }
 
-    pub fn publish(&mut self, offer: signal::SDP) -> Result<(Uuid, Arc<PeerConnection>), Error> {
-        let stream_id = Uuid::new_v4();
-        let peer = Arc::new(PeerConnection::new(&self.pipeline, stream_id)?);
-
-        self.peers.insert(stream_id, peer.clone());
-        self.broadcasts.insert(stream_id);
-        peer.set_remote_description(offer)?;
-
-        Ok((stream_id, peer))
-    }
-
-    pub fn subscribe(
-        &mut self,
-        broadcast_id: Uuid,
-        offer: String,
-    ) -> Result<(Uuid, Arc<PeerConnection>), Error> {
-        let subscriber_id = Uuid::new_v4();
-        let peer = Arc::new(PeerConnection::new(&self.pipeline, subscriber_id)?);
-
-        self.peers.insert(subscriber_id, peer.clone());
-        self.subscriptions.insert(subscriber_id, broadcast_id);
-
-        Ok((subscriber_id, peer))
+    pub fn join(&mut self, peer_id: Uuid) -> Result<Arc<PeerConnection>, Error> {
+        let peer = Arc::new(PeerConnection::new(&self.pipeline, peer_id)?);
+        self.peers.insert(peer_id, peer.clone());
+        Ok(peer)
     }
 }
 

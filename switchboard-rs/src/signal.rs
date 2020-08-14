@@ -25,21 +25,7 @@ use crate::router;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomEvent {
-    StreamAdd { uuid: Uuid },
-    StreamRemove { uuid: Uuid },
     PeerMsg { event: peer::PeerEvent },
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PublishReply {
-    pub media_id: Uuid,
-    pub answer: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SubscribeReply {
-    pub media_id: Uuid,
-    pub answer: String,
 }
 
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -54,29 +40,28 @@ pub trait SignalService {
     type Metadata;
 
     /// Join room
-    #[pubsub(subscription = "room", subscribe, name = "room_join")]
+    #[pubsub(subscription = "room", subscribe, name = "join")]
     fn room_join(
         &self,
         session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
-        room_id: Uuid,
+        sid: Uuid,
+        offer: SDP,
     );
 
     /// Leave room
-    #[pubsub(subscription = "room", unsubscribe, name = "room_leave")]
+    #[pubsub(subscription = "room", unsubscribe, name = "leave")]
     fn room_leave(
         &self,
         session: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
-    #[rpc(meta, name = "stream_list")]
-    fn stream_list(&self, session: Self::Metadata) -> Result<Vec<String>>;
 
-    #[rpc(meta, name = "stream_publish")]
-    fn stream_publish(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<PublishReply, Error>;
+    #[rpc(meta, name = "offer")]
+    fn offer(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<SDP, Error>;
 
-    #[rpc(meta, name = "stream_subscribe")]
-    fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply>;
+    #[rpc(meta, name = "trickle")]
+    fn trickle(&self, session: Self::Metadata, sdp: SDP) -> Result<()>;
 }
 
 type PeerID = Uuid;
@@ -99,7 +84,8 @@ impl PubSubMetadata for Session {
 pub struct Server {
     active: Arc<RwLock<HashMap<SubscriptionId, typed::Sink<RoomEvent>>>>,
     routers: router::RouterMap,
-    presence: Arc<RwLock<HashMap<PeerID, Arc<RwLock<router::Router>>>>>,
+    presence:
+        Arc<RwLock<HashMap<PeerID, (Arc<peer::PeerConnection>, Arc<RwLock<router::Router>>)>>>,
 }
 
 impl SignalService for Server {
@@ -110,6 +96,7 @@ impl SignalService for Server {
         session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
         room_id: RoomID,
+        offer: SDP,
     ) {
         info!("[peer {}] room_join: {}", session.peer_id, room_id);
 
@@ -125,14 +112,19 @@ impl SignalService for Server {
         }
 
         let router = self.routers.get_or_create_router(room_id);
-        self.presence
-            .write()
-            .unwrap()
-            .insert(session.peer_id, router.clone());
-
         let sub_id = SubscriptionId::String(session.peer_id.to_string());
         let sink = subscriber.assign_id(sub_id.clone()).unwrap();
         self.active.write().unwrap().insert(sub_id, sink);
+
+        if let SDP::Offer { sdp: _ } = offer {
+            let peer = router.write().unwrap().join(session.peer_id).unwrap();
+            peer.set_remote_description(offer).unwrap();
+
+            self.presence
+                .write()
+                .unwrap()
+                .insert(session.peer_id, (peer.clone(), router.clone()));
+        }
     }
 
     fn room_leave(&self, _session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
@@ -156,35 +148,39 @@ impl SignalService for Server {
         }
     }
 
-    fn stream_list(&self, session: Self::Metadata) -> Result<Vec<String>> {
-        Ok([].into())
-    }
-
-    fn stream_publish(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<PublishReply, Error> {
-        if let SDP::Offer { sdp: _ } = sdp {
-            debug!("got sdp {:#?}", &sdp);
-            if let Some(router) = self.presence.read().unwrap().get(&session.peer_id) {
-                let (broadcast_id, peer) = router.write().unwrap().publish(sdp).unwrap();
-                debug!("created broadcast: {}", broadcast_id);
-
-                return lazy(move || {
-                    debug!("bruh");
-
-                    future::ok(PublishReply {
-                        media_id: broadcast_id,
-                        answer: "".to_owned(),
-                    })
-                })
-                .boxed();
-            }
-        }
-
+    fn offer(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<SDP, Error> {
         future::failed(Error::internal_error()).boxed()
     }
 
-    fn stream_subscribe(&self, session: Self::Metadata, sdp: SDP) -> Result<SubscribeReply> {
-        Err(Error::internal_error())
+    fn trickle(&self, session: Self::Metadata, sdp_mline_index: u32, candidate: String) -> Result<()> {
+        let (peer, _) = self.presence.read().unwrap().get(&session.peer_id).unwrap()
+
+        peer.add_ice_candidate(sdp);
+
+
+        Ok(())
     }
+    //fn stream_publish(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<PublishReply, Error> {
+    //    if let SDP::Offer { sdp: _ } = sdp {
+    //        debug!("got sdp {:#?}", &sdp);
+    //        if let Some(router) = self.presence.read().unwrap().get(&session.peer_id) {
+    //            let (broadcast_id, peer) = router.write().unwrap().publish(sdp).unwrap();
+    //            debug!("created broadcast: {}", broadcast_id);
+
+    //            return lazy(move || {
+    //                debug!("bruh");
+
+    //                future::ok(PublishReply {
+    //                    media_id: broadcast_id,
+    //                    answer: "".to_owned(),
+    //                })
+    //            })
+    //            .boxed();
+    //        }
+    //    }
+
+    //    future::failed(Error::internal_error()).boxed()
+    //}
 }
 
 impl Server {
@@ -195,17 +191,17 @@ impl Server {
         let active_subscriptions = rpc.active.clone();
         io.extend_with(rpc.to_delegate());
 
-        thread::spawn(move || loop {
-            let subscribers = active_subscriptions.read().unwrap();
-            for sink in subscribers.values() {
-                let _ = sink
-                    .notify(Ok(RoomEvent::StreamAdd {
-                        uuid: Uuid::new_v4(),
-                    }))
-                    .wait();
-            }
-            thread::sleep(::std::time::Duration::from_secs(1));
-        });
+        //thread::spawn(move || loop {
+        //    let subscribers = active_subscriptions.read().unwrap();
+        //    for sink in subscribers.values() {
+        //        let _ = sink
+        //            .notify(Ok(RoomEvent::StreamAdd {
+        //                uuid: Uuid::new_v4(),
+        //            }))
+        //            .wait();
+        //    }
+        //    thread::sleep(::std::time::Duration::from_secs(1));
+        //});
 
         let builder = ServerBuilder::with_meta_extractor(io, |context: &RequestContext| Session {
             peer_id: Uuid::new_v4(),
