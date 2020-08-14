@@ -1,7 +1,20 @@
 use log::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{ErrorEvent, MessageEvent, WebSocket};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{window, ErrorEvent, MediaStream, MediaStreamConstraints, MessageEvent, WebSocket};
+use yew::prelude::*;
+
+#[wasm_bindgen]
+pub async fn init_user_media() -> Result<MediaStream, JsValue> {
+    let devices = window().ok_or("No window")?.navigator().media_devices()?;
+    let mut media = MediaStreamConstraints::new();
+    media
+        .video(&JsValue::from(true))
+        .audio(&JsValue::from(true));
+    let user_media = JsFuture::from(devices.get_user_media_with_constraints(&media)?).await?;
+    Ok(user_media.dyn_into::<MediaStream>()?)
+}
 
 #[wasm_bindgen(start)]
 pub fn connect_websocket() -> Result<(), JsValue> {
