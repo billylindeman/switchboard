@@ -22,14 +22,14 @@ use jsonrpc_pubsub::{PubSubHandler, PubSubMetadata, SubscriptionId};
 use crate::peer;
 use crate::router;
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case", untagged)]
 pub enum RoomEvent {
-    PeerMsg { event: peer::PeerEvent },
+    Peer(peer::PeerEvent),
 }
 
 #[serde(tag = "type", rename_all = "lowercase")]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum SDP {
     Offer { sdp: String },
     Answer { sdp: String },
@@ -46,7 +46,6 @@ pub trait SignalService {
         session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
         sid: Uuid,
-        offer: SDP,
     );
 
     /// Leave room
@@ -58,10 +57,18 @@ pub trait SignalService {
     ) -> Result<bool>;
 
     #[rpc(meta, name = "offer")]
-    fn offer(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<SDP, Error>;
+    fn offer(&self, session: Self::Metadata, sdp: SDP) -> Result<()>;
+
+    #[rpc(meta, name = "answer")]
+    fn answer(&self, session: Self::Metadata, sdp: SDP) -> Result<()>;
 
     #[rpc(meta, name = "trickle")]
-    fn trickle(&self, session: Self::Metadata, sdp: SDP) -> Result<()>;
+    fn trickle(
+        &self,
+        session: Self::Metadata,
+        sdp_mline_index: u32,
+        candidate: String,
+    ) -> Result<()>;
 }
 
 type PeerID = Uuid;
@@ -96,7 +103,6 @@ impl SignalService for Server {
         session: Self::Metadata,
         subscriber: typed::Subscriber<RoomEvent>,
         room_id: RoomID,
-        offer: SDP,
     ) {
         info!("[peer {}] room_join: {}", session.peer_id, room_id);
 
@@ -114,17 +120,23 @@ impl SignalService for Server {
         let router = self.routers.get_or_create_router(room_id);
         let sub_id = SubscriptionId::String(session.peer_id.to_string());
         let sink = subscriber.assign_id(sub_id.clone()).unwrap();
-        self.active.write().unwrap().insert(sub_id, sink);
+        self.active.write().unwrap().insert(sub_id, sink.clone());
 
-        if let SDP::Offer { sdp: _ } = offer {
-            let peer = router.write().unwrap().join(session.peer_id).unwrap();
-            peer.set_remote_description(offer).unwrap();
+        let peer = router.write().unwrap().join(session.peer_id).unwrap();
+        self.presence
+            .write()
+            .unwrap()
+            .insert(session.peer_id, (peer.clone(), router.clone()));
 
-            self.presence
-                .write()
-                .unwrap()
-                .insert(session.peer_id, (peer.clone(), router.clone()));
-        }
+        let rx = peer.rx.clone();
+        thread::spawn(move || {
+            while let Ok(msg) = rx.recv() {
+                debug!("sending msg: {:#?}", msg);
+                sink.notify(Ok(RoomEvent::Peer(msg)))
+                    .wait()
+                    .expect("Error sending notification");
+            }
+        });
     }
 
     fn room_leave(&self, _session: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool> {
@@ -148,15 +160,37 @@ impl SignalService for Server {
         }
     }
 
-    fn offer(&self, session: Self::Metadata, sdp: SDP) -> BoxFuture<SDP, Error> {
-        future::failed(Error::internal_error()).boxed()
+    fn offer(&self, session: Self::Metadata, sdp: SDP) -> Result<()> {
+        debug!("peer got offer");
+        let presence = self.presence.read().unwrap();
+        let (peer, _) = presence.get(&session.peer_id).unwrap();
+        peer.set_remote_description(sdp);
+        thread::sleep_ms(1000);
+        peer.create_answer();
+        Ok(())
     }
 
-    fn trickle(&self, session: Self::Metadata, sdp_mline_index: u32, candidate: String) -> Result<()> {
-        let (peer, _) = self.presence.read().unwrap().get(&session.peer_id).unwrap()
+    fn answer(&self, session: Self::Metadata, sdp: SDP) -> Result<()> {
+        debug!("peer got answer");
+        let presence = self.presence.read().unwrap();
+        let (peer, _) = presence.get(&session.peer_id).unwrap();
+        peer.set_remote_description(sdp);
 
-        peer.add_ice_candidate(sdp);
+        Ok(())
+    }
 
+    fn trickle(
+        &self,
+        session: Self::Metadata,
+        sdp_mline_index: u32,
+        candidate: String,
+    ) -> Result<()> {
+        debug!("peer trickle ice");
+        let presence = self.presence.read().unwrap();
+        let (peer, _) = presence.get(&session.peer_id).unwrap();
+
+        peer.add_ice_candidate(sdp_mline_index, candidate)
+            .expect("error adding ice candidate");
 
         Ok(())
     }

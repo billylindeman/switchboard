@@ -19,7 +19,8 @@ use log::*;
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize,Deserialize,Debug,Clone)]
+#[serde(rename_all = "snake_case", tag="type")]
 pub enum PeerEvent {
     OnIceCandidateCreated { sdp_mline_index: u32, candidate: String },
     OnOfferCreated{ offer: String },
@@ -31,8 +32,8 @@ pub enum PeerEvent {
 pub struct PeerConnection {
     pub id: Uuid,
     pub webrtcbin: gst::Element,
+    pub rx: Receiver<PeerEvent>,
     tx: Sender<PeerEvent>, 
-    //pub rx: Receiver<PeerEvent>,
 }
 
 impl PeerConnection {
@@ -47,7 +48,7 @@ impl PeerConnection {
         let (tx, rx) = bounded::<PeerEvent>(1);
 
         webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
-        webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
+        //webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
 
         webrtcbin
             .connect("on-negotiation-needed", false, enc!( (tx) move |values| {
@@ -111,6 +112,7 @@ impl PeerConnection {
         // Connect crossbeam channel to webrtcbin hooks
         webrtcbin
             .connect("on-ice-candidate", false, enc!((tx) move |values| {
+                debug!("on ice candidate callback");
                 let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument").unwrap();
                 let mlineindex = values[1].get_some::<u32>().expect("Invalid argument");
                 let candidate = values[2]
@@ -135,27 +137,42 @@ impl PeerConnection {
             }))
             .unwrap();
 
-        webrtcbin.connect_pad_added(move |_webrtc, pad| {
+        webrtcbin.connect_pad_added(enc!((pipeline) move |_webrtc, pad| {
             debug!("peer has incoming stream: {:?}", pad);
-        });
+
+            let fakesink = gst::ElementFactory::make(
+                "fakesink",
+                Some(&format!("peer-{}-fakesink", peer_id))
+            ).unwrap();
+
+
+            pipeline.add_many(&[&fakesink]).unwrap();
+
+            let sink_pad = fakesink.get_static_pad("sink").unwrap();
+            pad.link(&sink_pad).unwrap();
+
+        }));
 
 
         pipeline.add_many(&[
             &webrtcbin
         ])?;
 
+        webrtcbin.set_state(gst::State::Ready)?;
+        //webrtcbin.sync_state_with_parent()?;
 
-        thread::spawn(move || {
-            while let Ok(msg) = rx.recv() {
-                debug!("peerevent: {:#?}", msg);
-            }
-        });
+//        thread::spawn(move || {
+//            while let Ok(msg) = rx.recv() {
+//                debug!("peerevent: {:#?}", msg);
+//            }
+//        });
 
 
         Ok(PeerConnection{
             id: peer_id,
             webrtcbin: webrtcbin,
             tx: tx,
+            rx: rx,
         })
     }
     
