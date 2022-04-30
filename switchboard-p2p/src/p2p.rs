@@ -24,9 +24,9 @@ use tokio::io::{self, AsyncBufReadExt};
 // the events of each behaviour.
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = true)]
-struct MyBehaviour {
-    floodsub: Floodsub,
-    mdns: Mdns,
+pub struct MyBehaviour {
+    pub floodsub: Floodsub,
+    pub mdns: Mdns,
 }
 
 impl NetworkBehaviourEventProcess<FloodsubEvent> for MyBehaviour {
@@ -63,7 +63,9 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 }
 
 /// The `tokio::main` attribute sets up a tokio runtime.
-async fn build_swarm() -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
+pub async fn build_swarm(
+    floodsub_topic: floodsub::Topic,
+) -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
     // Create a random PeerId
     let id_keys = identity::Keypair::generate_ed25519();
     let peer_id = PeerId::from(id_keys.public());
@@ -85,7 +87,7 @@ async fn build_swarm() -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
         .boxed();
 
     // Create a Floodsub topic
-    let floodsub_topic = floodsub::Topic::new("chat");
+    //let floodsub_topic = floodsub::Topic::new("chat");
 
     // Create a Swarm to manage peers and events.
     let mut swarm = {
