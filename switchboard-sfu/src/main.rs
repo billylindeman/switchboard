@@ -1,31 +1,19 @@
-use std::net::SocketAddr;
+use std::{env, io::Error};
 
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::ws_client::WsClientBuilder;
-use jsonrpsee::ws_server::{RpcModule, WsServerBuilder};
+mod signal;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init()
-        .expect("setting default subscriber failed");
+    if env::var_os("RUST_LOG").is_none() {
+        env::set_var("RUST_LOG", "switchboard=info");
+    }
+    pretty_env_logger::init();
 
-    let addr = run_server().await?;
-    let url = format!("ws://{}", addr);
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
-    let client = WsClientBuilder::default().build(&url).await?;
-    let response: String = client.request("say_hello", None).await?;
-    tracing::info!("response: {:?}", response);
+    signal::run_server(&addr).await;
 
     Ok(())
-}
-
-async fn run_server() -> anyhow::Result<SocketAddr> {
-    let server = WsServerBuilder::default().build("127.0.0.1:0").await?;
-    let mut module = RpcModule::new(());
-    module.register_method("say_hello", |_, _| Ok("lo"))?;
-    let addr = server.local_addr()?;
-    server.start(module)?;
-    Ok(addr)
 }
