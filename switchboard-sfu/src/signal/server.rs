@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use futures_util::{future, StreamExt, TryStreamExt};
+use futures_util::{future, Sink, SinkExt, StreamExt, TryStreamExt};
 use log::info;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -28,5 +28,11 @@ async fn accept_connection(stream: TcpStream) {
 
     info!("New WebSocket connection: {}", addr);
 
-    jsonrpc::handle_messages(ws_stream).await
+    let mut rx = jsonrpc::handle_messages(ws_stream).await;
+
+    while let Some(evt) = rx.next().await {
+        info!("got jsonrpc evt: {:#?}", evt);
+    }
+
+    info!("client disconnected");
 }
