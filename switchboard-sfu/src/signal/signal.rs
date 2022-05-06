@@ -1,50 +1,37 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+use crate::sfu;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JoinMsg {
     pub sid: String,
-    pub offer: SessionDescription,
+    pub offer: sfu::peer::SessionDescription,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JoinResponse {
-    pub answer: SessionDescription,
+    pub answer: sfu::peer::SessionDescription,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NegotiateMsg {
-    pub desc: SessionDescription,
+    pub desc: sfu::peer::SessionDescription,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TrickleNotification {
     pub target: u32,
-    pub candidate: TrickleCandidate,
+    pub candidate: sfu::peer::TrickleCandidate,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SessionDescription {
-    #[serde(rename = "type")]
-    pub t: String,
-    pub sdp: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TrickleCandidate {
-    pub candidate: String,
-    #[serde(rename = "sdpMid")]
-    pub sdp_mid: Option<String>,
-    #[serde(rename = "sdpMLineIndex")]
-    pub sdp_mline_index: u32,
-}
-
-#[derive(Debug)]
-pub enum SignalNotification {
-    Negotiate {
-        offer: SessionDescription,
-    },
-    Trickle {
-        target: u32,
-        candidate: TrickleCandidate,
-    },
-}
+//#[derive(Debug)]
+//pub enum SignalNotification {
+//    Negotiate {
+//        offer: SessionDescription,
+//    },
+//    Trickle {
+//        target: u32,
+//        candidate: TrickleCandidate,
+//    },
+//}

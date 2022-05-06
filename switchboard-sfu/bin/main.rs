@@ -1,6 +1,6 @@
 use std::{env, io::Error};
 
-mod signal;
+use switchboard_sfu::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

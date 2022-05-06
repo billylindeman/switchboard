@@ -22,3 +22,8 @@ serde = "1.0.137"
 serde_json = { version = "1" }
 async-mutex = "1.4.0"
 futures-channel = "0.3.21"
+
+
+[[bin]]
+name = "switchboard"
+path = "bin/main.rs"

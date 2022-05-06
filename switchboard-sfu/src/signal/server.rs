@@ -6,10 +6,6 @@ use tokio::sync::Mutex;
 
 use super::*;
 
-struct ServerData {
-    peer_sockets: Mutex<HashMap<String, jsonrpc::WriteStream>>,
-}
-
 pub async fn run_server(addr: &str) {
     // Create the event loop and TCP listener we'll accept connections on.
     let try_socket = TcpListener::bind(&addr).await;
