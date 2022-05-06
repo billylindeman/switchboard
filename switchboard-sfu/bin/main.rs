@@ -11,7 +11,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|| "127.0.0.1:7000".to_string());
 
     signal::run_server(&addr).await;
 

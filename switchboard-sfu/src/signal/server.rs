@@ -5,6 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 
 use super::*;
+use crate::sfu;
 
 pub async fn run_server(addr: &str) {
     // Create the event loop and TCP listener we'll accept connections on.
@@ -23,47 +24,22 @@ async fn accept_connection(stream: TcpStream) {
         .expect("connected streams should have a peer address");
     info!("Peer address: {}", addr);
 
+    let mut peer = sfu::peer::Peer::new().await.expect("error creating peer");
+
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .expect("Error during the websocket handshake occurred");
 
     info!("New WebSocket connection: {}", addr);
 
-    let (mut rx, mut tx) = jsonrpc::handle_messages(ws_stream).await;
+    let (mut rpc_rx, mut rpc_tx) = jsonrpc::handle_messages(ws_stream).await;
+    let (mut sig_rx, mut sig_tx) = signal::handle_messages(rpc_rx, rpc_tx).await;
 
-    while let Some(e) = rx.next().await {
-        match e {
-            Ok(evt) => {
-                info!("got jsonrpc evt: {:#?}", evt);
+    peer.event_loop(sig_rx, sig_tx.clone()).await;
 
-                match evt {
-                    jsonrpc::Event::Request(r) => {
-                        let r = jsonrpc::Response {
-                            method: r.method,
-                            id: r.id,
-                            result: Some(r.params),
-                            error: None,
-                        };
+    error!("event loop closed");
 
-                        match r.method.as_str() {
-                            "close" => {
-                                tx.close().await.expect("failed to close socket");
-                            }
-                            _ => {
-                                tx.send(Ok(jsonrpc::Event::Response(r)))
-                                    .await
-                                    .expect("couldn't send message");
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Err(err) => {
-                error!("got error: {}", err);
-            }
-        }
-    }
+    sig_tx.close().await.expect("closed signal tx");
 
     info!("client disconnected");
 }

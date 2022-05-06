@@ -1,12 +1,13 @@
+use enclose::enc;
 use futures::select;
 use futures_util::{future, StreamExt, TryStreamExt};
 use log::*;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use std::collections::HashMap;
 
-use futures_channel::mpsc;
+use futures_channel::{mpsc, oneshot};
 
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 
@@ -15,7 +16,10 @@ use tokio_tungstenite::{tungstenite, WebSocketStream};
 pub struct Request {
     pub id: String,
     pub method: String,
-    pub params: HashMap<String, Value>,
+    pub params: Map<String, Value>,
+
+    #[serde(skip)]
+    pub result: Option<oneshot::Sender<Response>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -24,7 +28,7 @@ pub struct Response {
     pub id: String,
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<HashMap<String, Value>>,
+    pub result: Option<Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<Value>,
 }
@@ -32,8 +36,8 @@ pub struct Response {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct Notification {
-    method: String,
-    params: HashMap<String, Value>,
+    pub method: String,
+    pub params: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,7 +46,6 @@ pub enum Event {
     Request(Request),
     Response(Response),
     Notification(Notification),
-    Disconnected,
 }
 
 pub type ReadStream = mpsc::UnboundedReceiver<anyhow::Result<Event>>;
@@ -61,8 +64,7 @@ pub async fn handle_messages(
         let mut incoming_fut = read
             .map_err(|err| error!("websocket error: {}", err))
             .try_filter(|msg| future::ready(msg.is_text()))
-            .map(|msg| msg.unwrap())
-            .map(|msg| serde_json::from_str::<Event>(msg.to_text().unwrap()))
+            .map(|msg| serde_json::from_str::<Event>(msg.unwrap().to_text().unwrap()))
             .map_err(|err| {
                 error!("error parsing json: {}", err);
                 err.into()

@@ -1,5 +1,29 @@
-use anyhow::Result;
+use crate::signal::signal;
+use anyhow::{format_err, Result};
+use async_mutex::Mutex;
+use enclose::enc;
+use futures::{Stream, StreamExt};
+use log::*;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use webrtc::api::interceptor_registry::register_default_interceptors;
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
+use webrtc::api::APIBuilder;
+use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
+use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
+use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::interceptor::registry::Registry;
+use webrtc::media::io::h264_writer::H264Writer;
+use webrtc::media::io::ogg_writer::OggWriter;
+use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+use webrtc::rtp_transceiver::rtp_codec::{
+    RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
+};
+use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
+use webrtc::track::track_remote::TrackRemote;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SessionDescription {
@@ -8,16 +32,131 @@ pub struct SessionDescription {
     pub sdp: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TrickleCandidate {
-    pub candidate: String,
-    #[serde(rename = "sdpMid")]
-    pub sdp_mid: Option<String>,
-    #[serde(rename = "sdpMLineIndex")]
-    pub sdp_mline_index: u32,
+const TRANSPORT_TARGET_PUB: u32 = 1;
+const TRANSPORT_TARGET_SUB: u32 = 2;
+
+pub struct Peer {
+    pub publisher: Arc<RTCPeerConnection>,
+    //    pub subscriber: Arc<RTCPeerConnection>,
 }
 
-pub trait Signal {
-    fn join(sid: String, offer: SessionDescription) -> Result<SessionDescription>;
-    fn subscriber_answer_for_offer(offer: SessionDescription) -> Result<SessionDescription>;
+impl Peer {
+    pub async fn new() -> Result<Peer> {
+        Ok(Peer {
+            publisher: build_peer_connection().await?,
+            //            subscriber: build_peer_connection().await?,
+        })
+    }
+
+    pub async fn join(&mut self, offer: RTCSessionDescription) -> Result<RTCSessionDescription> {
+        debug!("join set remote description");
+        self.publisher.set_remote_description(offer).await?;
+
+        let answer = self.publisher.create_answer(None).await?;
+        self.publisher.set_local_description(answer).await?;
+
+        match self.publisher.local_description().await {
+            Some(answer) => Ok(answer),
+            None => Err(format_err!("couldn't set local description")),
+        }
+    }
+
+    pub async fn trickle_ice_candidate(
+        &self,
+        target: u32,
+        candidate: RTCIceCandidateInit,
+    ) -> Result<()> {
+        match target {
+            TRANSPORT_TARGET_PUB => {
+                if let Err(err) = self.publisher.add_ice_candidate(candidate).await {
+                    error!("error adding ice candidate: {}", err);
+                }
+            }
+            //           TRANSPORT_TARGET_SUB => self.subscriber.add_ice_candidate(candidate).await?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub async fn event_loop(&mut self, mut rx: signal::ReadStream, tx: signal::WriteStream) {
+        self.publisher
+            .on_ice_candidate(Box::new(move |c: Option<RTCIceCandidate>| {
+                Box::pin(enc!( (tx) async move {
+                    if let Some(c) = c {
+                        info!("on ice candidate publisher: {}", c);
+                        tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                            target: TRANSPORT_TARGET_PUB,
+                            candidate: c
+                                .to_json()
+                                .await
+                                .expect("error converting to json")
+                                .into(),
+                        }))).expect("error sending ice");
+                    }
+                }))
+            }))
+            .await;
+
+        while let Some(Ok(evt)) = rx.next().await {
+            match evt {
+                signal::Event::JoinRequest(res, join) => {
+                    info!("got join request: {:#?}", join);
+                    let answer = self.join(join.offer).await;
+                    if let Err(err) = &answer {
+                        error!("Error with join offer {}", err);
+                    };
+
+                    info!("answer created ");
+
+                    res.send(answer.unwrap()).expect("error sending response");
+                }
+
+                signal::Event::TrickleIce(trickle) => {
+                    info!("trickle ice: {:#?}", trickle);
+                    self.trickle_ice_candidate(trickle.target, trickle.candidate.into())
+                        .await
+                        .expect("error adding trickle candidate");
+                }
+                _ => {}
+            }
+        }
+
+        info!("event loop finished")
+    }
+}
+
+async fn build_peer_connection() -> Result<Arc<RTCPeerConnection>> {
+    // Create a MediaEngine object to configure the supported codec
+    let mut m = MediaEngine::default();
+
+    // Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
+    // This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
+    // this is enabled by default. If you are manually managing You MUST create a InterceptorRegistry
+    // for each PeerConnection.
+    let mut registry = Registry::new();
+
+    // Use the default set of Interceptors
+    registry = register_default_interceptors(registry, &mut m)?;
+
+    // Create the API object with the MediaEngine
+    let api = APIBuilder::new()
+        .with_media_engine(m)
+        .with_interceptor_registry(registry)
+        .build();
+
+    // Prepare the configuration
+    let config = RTCConfiguration {
+        ice_servers: vec![RTCIceServer {
+            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    trace!("building peer connection");
+
+    // Create a new RTCPeerConnection
+    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
+
+    Ok(peer_connection)
 }
