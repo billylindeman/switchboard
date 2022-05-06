@@ -1,10 +1,14 @@
-use std::net::SocketAddr;
-
 use futures_util::{future, Sink, SinkExt, StreamExt, TryStreamExt};
-use log::info;
+use log::*;
+use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
 use super::*;
+
+struct ServerData {
+    peer_sockets: Mutex<HashMap<String, jsonrpc::WriteStream>>,
+}
 
 pub async fn run_server(addr: &str) {
     // Create the event loop and TCP listener we'll accept connections on.
@@ -31,21 +35,37 @@ async fn accept_connection(stream: TcpStream) {
 
     let (mut rx, mut tx) = jsonrpc::handle_messages(ws_stream).await;
 
-    while let Some(Ok(evt)) = rx.next().await {
-        info!("got jsonrpc evt: {:#?}", evt);
+    while let Some(e) = rx.next().await {
+        match e {
+            Ok(evt) => {
+                info!("got jsonrpc evt: {:#?}", evt);
 
-        match evt {
-            jsonrpc::Message::Request(r) => {
-                let r = jsonrpc::Response {
-                    method: r.method,
-                    id: r.id,
-                    result: Some(r.params),
-                    error: None,
-                };
+                match evt {
+                    jsonrpc::Event::Request(r) => {
+                        let r = jsonrpc::Response {
+                            method: r.method,
+                            id: r.id,
+                            result: Some(r.params),
+                            error: None,
+                        };
 
-                tx.send(Ok(jsonrpc::Message::Response(r))).await;
+                        match r.method.as_str() {
+                            "close" => {
+                                tx.close().await.expect("failed to close socket");
+                            }
+                            _ => {
+                                tx.send(Ok(jsonrpc::Event::Response(r)))
+                                    .await
+                                    .expect("couldn't send message");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
-            _ => {}
+            Err(err) => {
+                error!("got error: {}", err);
+            }
         }
     }
 
