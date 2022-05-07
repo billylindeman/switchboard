@@ -32,11 +32,11 @@ pub struct SessionDescription {
     pub sdp: String,
 }
 
-const TRANSPORT_TARGET_PUB: u32 = 1;
-const TRANSPORT_TARGET_SUB: u32 = 2;
+const TRANSPORT_TARGET_PUB: u32 = 0;
+const TRANSPORT_TARGET_SUB: u32 = 1;
 
 pub struct Peer {
-    pub publisher: Arc<RTCPeerConnection>,
+    pub publisher: RTCPeerConnection,
     //    pub subscriber: Arc<RTCPeerConnection>,
 }
 
@@ -48,8 +48,11 @@ impl Peer {
         })
     }
 
-    pub async fn join(&mut self, offer: RTCSessionDescription) -> Result<RTCSessionDescription> {
-        debug!("join set remote description");
+    pub async fn publisher_get_answer_for_offer(
+        &mut self,
+        offer: RTCSessionDescription,
+    ) -> Result<RTCSessionDescription> {
+        debug!("publisher set remote description");
         self.publisher.set_remote_description(offer).await?;
 
         let answer = self.publisher.create_answer(None).await?;
@@ -78,6 +81,10 @@ impl Peer {
         Ok(())
     }
 
+    pub async fn close(&self) {
+        self.publisher.close().await;
+    }
+
     pub async fn event_loop(&mut self, mut rx: signal::ReadStream, tx: signal::WriteStream) {
         self.publisher
             .on_ice_candidate(Box::new(move |c: Option<RTCIceCandidate>| {
@@ -101,7 +108,8 @@ impl Peer {
             match evt {
                 signal::Event::JoinRequest(res, join) => {
                     info!("got join request: {:#?}", join);
-                    let answer = self.join(join.offer).await;
+
+                    let answer = self.publisher_get_answer_for_offer(join.offer).await;
                     if let Err(err) = &answer {
                         error!("Error with join offer {}", err);
                     };
@@ -117,6 +125,17 @@ impl Peer {
                         .await
                         .expect("error adding trickle candidate");
                 }
+
+                signal::Event::PublisherOffer(res, offer) => {
+                    info!("publisher made offer");
+
+                    let answer = self
+                        .publisher_get_answer_for_offer(offer.desc)
+                        .await
+                        .expect("publisher error setting remote description");
+
+                    res.send(answer).expect("error sending answer");
+                }
                 _ => {}
             }
         }
@@ -125,9 +144,10 @@ impl Peer {
     }
 }
 
-async fn build_peer_connection() -> Result<Arc<RTCPeerConnection>> {
+async fn build_peer_connection() -> Result<RTCPeerConnection> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
+    m.register_default_codecs();
 
     // Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
     // This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
@@ -156,7 +176,7 @@ async fn build_peer_connection() -> Result<Arc<RTCPeerConnection>> {
     trace!("building peer connection");
 
     // Create a new RTCPeerConnection
-    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
+    let peer_connection = api.new_peer_connection(config).await?;
 
     Ok(peer_connection)
 }

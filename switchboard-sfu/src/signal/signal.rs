@@ -66,7 +66,7 @@ impl From<TrickleCandidate> for RTCIceCandidateInit {
 pub enum Event {
     JoinRequest(oneshot::Sender<JoinResponse>, JoinMsg),
     SubscriberOffer(oneshot::Sender<NegotiateMsg>, NegotiateMsg),
-    PublisherOffer(oneshot::Sender<NegotiateMsg>, NegotiateMsg),
+    PublisherOffer(oneshot::Sender<RTCSessionDescription>, NegotiateMsg),
     TrickleIce(TrickleNotification),
 }
 
@@ -107,7 +107,30 @@ pub async fn handle_messages(
 
                         sig_read_tx.unbounded_send(Ok(Event::JoinRequest(tx, j))).expect("error forwarding signal message");
                     }
-                    "offer" => {}
+                    "offer" => {
+                        let id = r.id;
+                        let (tx, rx) = oneshot::channel::<RTCSessionDescription>();
+
+                        info!("got publisher negotiation offer");
+
+                        tokio::spawn(enc!( (rpc_write) async move {
+                            let result = rx.await.unwrap();
+                            let response = jsonrpc::Response{
+                                id: id,
+                                method: "offer".to_owned(),
+                                result: Some(serde_json::from_value(serde_json::to_value(result).unwrap()).expect("error creating response")),
+                                error: None
+                            };
+
+                            rpc_write.unbounded_send(Ok(jsonrpc::Event::Response(response))).expect("error sending response");
+                        }));
+
+                        let j: NegotiateMsg =
+                            serde_json::from_value(Value::Object(r.params)).expect("error parsing");
+
+                        sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, j))).expect("error forwarding signal message");
+
+                    }
                     _ => {}
                 },
                 jsonrpc::Event::Notification(n) => match n.method.as_str() {

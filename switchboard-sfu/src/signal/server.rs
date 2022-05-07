@@ -38,8 +38,9 @@ async fn accept_connection(stream: TcpStream) {
     peer.event_loop(sig_rx, sig_tx.clone()).await;
 
     error!("event loop closed");
-
     sig_tx.close().await.expect("closed signal tx");
+
+    peer.close().await;
 
     info!("client disconnected");
 }
