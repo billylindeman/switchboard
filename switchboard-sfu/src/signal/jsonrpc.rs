@@ -1,11 +1,8 @@
-use enclose::enc;
 use futures::select;
 use futures_util::{future, StreamExt, TryStreamExt};
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-
-use std::collections::HashMap;
 
 use futures_channel::{mpsc, oneshot};
 

@@ -1,11 +1,10 @@
 use anyhow::Result;
 use enclose::enc;
 use futures_channel::{mpsc, oneshot};
-use futures_util::{future, Sink, SinkExt, StreamExt, TryStreamExt};
+use futures_util::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use std::collections::HashMap;
+use serde_json::Value;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 

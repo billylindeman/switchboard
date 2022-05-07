@@ -1,8 +1,6 @@
-use futures_util::{future, Sink, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use log::*;
-use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 
 use super::*;
 use crate::sfu;
@@ -32,14 +30,13 @@ async fn accept_connection(stream: TcpStream) {
 
     info!("New WebSocket connection: {}", addr);
 
-    let (mut rpc_rx, mut rpc_tx) = jsonrpc::handle_messages(ws_stream).await;
-    let (mut sig_rx, mut sig_tx) = signal::handle_messages(rpc_rx, rpc_tx).await;
+    let (rpc_rx, rpc_tx) = jsonrpc::handle_messages(ws_stream).await;
+    let (sig_rx, mut sig_tx) = signal::handle_messages(rpc_rx, rpc_tx).await;
 
     peer.event_loop(sig_rx, sig_tx.clone()).await;
 
     error!("event loop closed");
     sig_tx.close().await.expect("closed signal tx");
-
     peer.close().await;
 
     info!("client disconnected");

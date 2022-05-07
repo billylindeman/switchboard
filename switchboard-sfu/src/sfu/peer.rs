@@ -1,11 +1,8 @@
-use crate::signal::signal;
 use anyhow::{format_err, Result};
-use async_mutex::Mutex;
 use enclose::enc;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use log::*;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
 use webrtc::api::APIBuilder;
@@ -13,8 +10,6 @@ use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit}
 use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
-use webrtc::media::io::h264_writer::H264Writer;
-use webrtc::media::io::ogg_writer::OggWriter;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -25,15 +20,10 @@ use webrtc::rtp_transceiver::rtp_codec::{
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::track::track_remote::TrackRemote;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SessionDescription {
-    #[serde(rename = "type")]
-    pub t: String,
-    pub sdp: String,
-}
+use crate::signal::signal;
 
 const TRANSPORT_TARGET_PUB: u32 = 0;
-const TRANSPORT_TARGET_SUB: u32 = 1;
+//const TRANSPORT_TARGET_SUB: u32 = 1;
 
 pub struct Peer {
     pub publisher: RTCPeerConnection,
@@ -82,7 +72,7 @@ impl Peer {
     }
 
     pub async fn close(&self) {
-        self.publisher.close().await;
+        self.publisher.close().await.unwrap();
     }
 
     pub async fn event_loop(&mut self, mut rx: signal::ReadStream, tx: signal::WriteStream) {
@@ -147,7 +137,7 @@ impl Peer {
 async fn build_peer_connection() -> Result<RTCPeerConnection> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
-    m.register_default_codecs();
+    m.register_default_codecs()?;
 
     // Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
     // This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
