@@ -129,12 +129,7 @@ pub async fn handle_messages(
                             serde_json::from_value(Value::Object(r.params)).expect("error parsing");
 
                         sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, o))).expect("error forwarding signal message");
-                    }
-                    "answer" => {
-                        let n: NegotiateMsg =
-                            serde_json::from_value(Value::Object(r.params)).expect("error parsing");
-                        sig_read_tx.unbounded_send(Ok(Event::SubscriberOffer(n.desc))).expect("error forwarding signal message");
-                    }
+                    },
                     _ => {}
                 },
                 jsonrpc::Event::Notification(n) => match n.method.as_str() {
@@ -143,7 +138,13 @@ pub async fn handle_messages(
                         let t: TrickleNotification
                             = serde_json::from_value(Value::Object(n.params)).expect("error parsing");
                         sig_read_tx.unbounded_send(Ok(Event::TrickleIce(t))).expect("error forwarding signal message");
+                    },
+                    "answer" => {
+                        let n: NegotiateMsg =
+                            serde_json::from_value(Value::Object(n.params)).expect("error parsing");
+                        sig_read_tx.unbounded_send(Ok(Event::SubscriberAnswer(n))).expect("error forwarding signal message");
                     }
+
 
                     _ => {}
                 },

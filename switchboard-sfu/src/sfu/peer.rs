@@ -1,7 +1,10 @@
 use anyhow::{format_err, Result};
+use async_mutex::Mutex;
 use enclose::enc;
 use futures::StreamExt;
 use log::*;
+use std::iter::Iterator;
+use std::sync::Arc;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
@@ -28,6 +31,8 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 pub struct Peer {
     pub publisher: RTCPeerConnection,
     pub subscriber: RTCPeerConnection,
+
+    pub sub_pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
 }
 
 impl Peer {
@@ -35,6 +40,7 @@ impl Peer {
         Ok(Peer {
             publisher: build_peer_connection().await?,
             subscriber: build_peer_connection().await?,
+            sub_pending_candidates: Arc::new(Mutex::new(vec![])),
         })
     }
 
@@ -67,6 +73,15 @@ impl Peer {
 
     pub async fn subscriber_set_answer(&mut self, answer: RTCSessionDescription) -> Result<()> {
         self.subscriber.set_remote_description(answer).await?;
+
+        if let mut pending_candidates = self.sub_pending_candidates.lock().await {
+            while let Some(candidate) = (*pending_candidates).pop() {
+                if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
+                    error!("error adding ice candidate: {}", err);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -81,11 +96,19 @@ impl Peer {
                     error!("error adding ice candidate: {}", err);
                 }
             }
-            TRANSPORT_TARGET_SUB => {
-                if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
-                    error!("error adding ice candidate: {}", err);
+            TRANSPORT_TARGET_SUB => match self.subscriber.remote_description().await {
+                None => {
+                    if let mut pending_candidates = self.sub_pending_candidates.lock().await {
+                        debug!("subscriber pending candidate added");
+                        pending_candidates.push(candidate);
+                    }
                 }
-            }
+                Some(_) => {
+                    if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
+                        error!("error adding ice candidate: {}", err);
+                    }
+                }
+            },
 
             _ => {}
         }
@@ -178,7 +201,7 @@ impl Peer {
                 }
 
                 signal::Event::SubscriberAnswer(answer) => {
-                    info!("subscriber sent answer");
+                    info!("subscriber got answer");
                     self.subscriber_set_answer(answer.desc)
                         .await
                         .expect("subscriber error setting remote description");
