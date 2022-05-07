@@ -64,8 +64,9 @@ impl From<TrickleCandidate> for RTCIceCandidateInit {
 
 pub enum Event {
     JoinRequest(oneshot::Sender<JoinResponse>, JoinMsg),
-    SubscriberOffer(oneshot::Sender<NegotiateMsg>, NegotiateMsg),
     PublisherOffer(oneshot::Sender<RTCSessionDescription>, NegotiateMsg),
+    SubscriberOffer(RTCSessionDescription),
+    SubscriberAnswer(NegotiateMsg),
     TrickleIce(TrickleNotification),
 }
 
@@ -124,11 +125,15 @@ pub async fn handle_messages(
                             rpc_write.unbounded_send(Ok(jsonrpc::Event::Response(response))).expect("error sending response");
                         }));
 
-                        let j: NegotiateMsg =
+                        let o: NegotiateMsg =
                             serde_json::from_value(Value::Object(r.params)).expect("error parsing");
 
-                        sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, j))).expect("error forwarding signal message");
-
+                        sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, o))).expect("error forwarding signal message");
+                    }
+                    "answer" => {
+                        let n: NegotiateMsg =
+                            serde_json::from_value(Value::Object(r.params)).expect("error parsing");
+                        sig_read_tx.unbounded_send(Ok(Event::SubscriberOffer(n.desc))).expect("error forwarding signal message");
                     }
                     _ => {}
                 },
@@ -156,6 +161,15 @@ pub async fn handle_messages(
                         params: serde_json::from_value(serde_json::to_value(ice).unwrap()).unwrap(),
                     };
                     rpc_write.unbounded_send(Ok(jsonrpc::Event::Notification(n))).expect("error sending notification");
+                }
+                Event::SubscriberOffer(offer) => {
+                    let n = jsonrpc::Notification{
+                        method: "offer".to_owned(),
+                        params: serde_json::from_value(serde_json::to_value(offer).unwrap()).unwrap(),
+                    };
+                    rpc_write.unbounded_send(Ok(jsonrpc::Event::Notification(n))).expect("error sending notification");
+
+
                 }
                 _ => {}
             }

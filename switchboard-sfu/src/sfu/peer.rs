@@ -23,18 +23,18 @@ use webrtc::track::track_remote::TrackRemote;
 use crate::signal::signal;
 
 const TRANSPORT_TARGET_PUB: u32 = 0;
-//const TRANSPORT_TARGET_SUB: u32 = 1;
+const TRANSPORT_TARGET_SUB: u32 = 1;
 
 pub struct Peer {
     pub publisher: RTCPeerConnection,
-    //    pub subscriber: Arc<RTCPeerConnection>,
+    pub subscriber: RTCPeerConnection,
 }
 
 impl Peer {
     pub async fn new() -> Result<Peer> {
         Ok(Peer {
             publisher: build_peer_connection().await?,
-            //            subscriber: build_peer_connection().await?,
+            subscriber: build_peer_connection().await?,
         })
     }
 
@@ -54,6 +54,22 @@ impl Peer {
         }
     }
 
+    pub async fn subscriber_create_offer(&mut self) -> Result<RTCSessionDescription> {
+        let offer = self.subscriber.create_offer(None).await?;
+
+        let mut offer_gathering_complete = self.subscriber.gathering_complete_promise().await;
+        self.subscriber.set_local_description(offer).await?;
+        let _ = offer_gathering_complete.recv().await;
+
+        let offer = self.subscriber.local_description().await.unwrap();
+        Ok(offer)
+    }
+
+    pub async fn subscriber_set_answer(&mut self, answer: RTCSessionDescription) -> Result<()> {
+        self.subscriber.set_remote_description(answer).await?;
+        Ok(())
+    }
+
     pub async fn trickle_ice_candidate(
         &self,
         target: u32,
@@ -65,7 +81,12 @@ impl Peer {
                     error!("error adding ice candidate: {}", err);
                 }
             }
-            //           TRANSPORT_TARGET_SUB => self.subscriber.add_ice_candidate(candidate).await?,
+            TRANSPORT_TARGET_SUB => {
+                if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
+                    error!("error adding ice candidate: {}", err);
+                }
+            }
+
             _ => {}
         }
         Ok(())
@@ -77,7 +98,7 @@ impl Peer {
 
     pub async fn event_loop(&mut self, mut rx: signal::ReadStream, tx: signal::WriteStream) {
         self.publisher
-            .on_ice_candidate(Box::new(move |c: Option<RTCIceCandidate>| {
+            .on_ice_candidate(Box::new(enc!( (tx) move |c: Option<RTCIceCandidate>| {
                 Box::pin(enc!( (tx) async move {
                     if let Some(c) = c {
                         info!("on ice candidate publisher: {}", c);
@@ -91,8 +112,37 @@ impl Peer {
                         }))).expect("error sending ice");
                     }
                 }))
-            }))
+            })))
             .await;
+
+        let _ = self
+            .subscriber
+            .create_data_channel("switchboard-rx", None)
+            .await;
+
+        self.subscriber
+            .on_ice_candidate(Box::new(enc!( (tx) move |c: Option<RTCIceCandidate>| {
+                Box::pin(enc!( (tx) async move {
+                    if let Some(c) = c {
+                        info!("on ice candidate subscriber: {}", c);
+                        tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                            target: TRANSPORT_TARGET_SUB,
+                            candidate: c
+                                .to_json()
+                                .await
+                                .expect("error converting to json")
+                                .into(),
+                        }))).expect("error sending ice");
+                    }
+                }))
+            })))
+            .await;
+
+        if let Ok(offer) = self.subscriber_create_offer().await {
+            info!("sending subscriber offer");
+            tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
+                .expect("error sending subscriber offer");
+        }
 
         while let Some(Ok(evt)) = rx.next().await {
             match evt {
@@ -125,6 +175,13 @@ impl Peer {
                         .expect("publisher error setting remote description");
 
                     res.send(answer).expect("error sending answer");
+                }
+
+                signal::Event::SubscriberAnswer(answer) => {
+                    info!("subscriber sent answer");
+                    self.subscriber_set_answer(answer.desc)
+                        .await
+                        .expect("subscriber error setting remote description");
                 }
                 _ => {}
             }
