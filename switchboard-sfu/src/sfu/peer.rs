@@ -23,6 +23,7 @@ use webrtc::rtp_transceiver::rtp_codec::{
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::track::track_remote::TrackRemote;
 
+use super::media_track_router::*;
 use crate::signal::signal;
 
 const TRANSPORT_TARGET_PUB: u32 = 0;
@@ -142,38 +143,23 @@ impl Peer {
         let pub_pc = Arc::downgrade(&self.publisher);
         let sub_pc = Arc::downgrade(&self.subscriber);
 
-        let (packets_tx, mut packets_rx) =
-            tokio::sync::mpsc::channel::<webrtc::rtp::packet::Packet>(60);
-        let packets_tx = Arc::new(packets_tx);
-
         self.publisher
-            .on_track(Box::new(enc!( (pub_pc, sub_pc, packets_tx) {
+            .on_track(Box::new(enc!( (pub_pc, sub_pc) {
                 move |track: Option<Arc<TrackRemote>>, _receiver: Option<Arc<RTCRtpReceiver>>| {
                     Box::pin( enc!( (pub_pc, sub_pc) async move {
                     if let Some(track) = track {
-                        // Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
-                        let media_ssrc = track.ssrc();
-                        tokio::spawn(enc!( (pub_pc, sub_pc) async move {
-                            let mut result = Result::<usize>::Ok(0);
-                            while result.is_ok() {
-                                let timeout = tokio::time::sleep(Duration::from_secs(3));
-                                tokio::pin!(timeout);
+                        let media_track_router = MediaTrackRouter::new(track);
+                        media_track_router.event_loop().await;
 
-                                tokio::select! {
-                                    _ = timeout.as_mut() =>{
-                                        if let Some(pub_pc) = pub_pc.upgrade(){
-                                            result = pub_pc.write_rtcp(&[Box::new(PictureLossIndication{
-                                                sender_ssrc: 0,
-                                                media_ssrc,
-                                            })]).await.map_err(Into::into);
-                                        }else{
-                                            break;
-                                        }
-                                    }
-                                };
-                            }
-                        }));
+                        if let Some(sub_pc) = sub_pc.upgrade() {
+                        let mut media_track_subscriber = media_track_router.add_subscriber().await;
 
+                        tokio::spawn(async move {
+                            media_track_subscriber.add_to_peer_connection(&sub_pc).await.expect("error adding track subscriber to peer_connection");
+                            media_track_subscriber.event_loop().await;
+                        });
+
+                        }
 
                     } else {
                         warn!("on track called with no track!");
@@ -206,11 +192,29 @@ impl Peer {
             })))
             .await;
 
-        if let Ok(offer) = self.subscriber_create_offer().await {
-            info!("sending subscriber offer");
-            tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
-                .expect("error sending subscriber offer");
-        }
+        self.subscriber
+            .on_negotiation_needed(Box::new(enc!( (tx, sub_pc) move || {
+                Box::pin(enc!( (tx, sub_pc) async move {
+                    info!("subscriber on_negotiation_needed");
+
+                    if let Some(sub_pc) = sub_pc.upgrade() {
+                        let offer = sub_pc.create_offer(None).await.unwrap();
+                        sub_pc.set_local_description(offer).await.unwrap();
+                        let offer = sub_pc.local_description().await.unwrap();
+
+                        info!("subscriber sending offer");
+                        tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
+                            .expect("error sending subscriber offer");
+                    }
+                }))
+            })))
+            .await;
+
+        //if let Ok(offer) = self.subscriber_create_offer().await {
+        //    info!("sending subscriber offer");
+        //    tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
+        //        .expect("error sending subscriber offer");
+        //}
 
         while let Some(Ok(evt)) = rx.next().await {
             match evt {

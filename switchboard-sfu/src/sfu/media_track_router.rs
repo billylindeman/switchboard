@@ -2,32 +2,34 @@ use anyhow::Result;
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp;
-use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
+use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
+use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
+use webrtc::Error;
 
 pub struct MediaTrackRouter {
     track_remote: Arc<TrackRemote>,
-    rtp_receiver: RTCRtpReceiver,
 
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
-    packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    _packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
 }
 
 impl MediaTrackRouter {
-    pub fn new(track_remote: TrackRemote, rtp_receiver: RTCRtpReceiver) -> MediaTrackRouter {
+    pub fn new(track_remote: Arc<TrackRemote>) -> MediaTrackRouter {
         let (pkt_tx, pkt_rx) = broadcast::channel(512);
         MediaTrackRouter {
-            track_remote: Arc::new(track_remote),
-            rtp_receiver: rtp_receiver,
+            track_remote: track_remote,
 
             packet_sender: pkt_tx,
-            packet_receiver: pkt_rx,
+            _packet_receiver: pkt_rx,
         }
     }
 
-    pub fn packet_receiver(&self) -> broadcast::Receiver<rtp::packet::Packet> {
-        self.packet_sender.subscribe()
+    pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
+        trace!("MediaTrackRouter adding new subscriber");
+        MediaTrackSubscriber::new(&self.track_remote, self.packet_sender.subscribe()).await
     }
 
     // Process RTCP & RTP packets for this track
@@ -52,9 +54,20 @@ impl MediaTrackRouter {
                 }
                 last_timestamp = old_timestamp;
 
+                trace!(
+                    "MediaTrackRouter received RTP ssrc={} seq={} timestamp={}",
+                    rtp.header.ssrc,
+                    rtp.header.sequence_number,
+                    rtp.header.timestamp
+                );
+
                 // Send packet to broadcast channel
-                if let Err(e) = packet_sender.send(rtp) {
-                    error!("MediaTrackRouter failed to broadcast RTP: {}", e);
+                if packet_sender.receiver_count() > 0 {
+                    if let Err(e) = packet_sender.send(rtp) {
+                        error!("MediaTrackRouter failed to broadcast RTP: {}", e);
+                    }
+                } else {
+                    trace!("MediaTrackRouter has no subscribers");
                 }
             }
 
@@ -86,5 +99,97 @@ impl MediaTrackRouter {
         //        };
         //    }
         //});
+    }
+}
+
+pub struct MediaTrackSubscriber {
+    track: Arc<TrackLocalStaticRTP>,
+    pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+}
+
+impl MediaTrackSubscriber {
+    pub async fn new(
+        remote: &TrackRemote,
+        pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    ) -> MediaTrackSubscriber {
+        let output_track = Arc::new(TrackLocalStaticRTP::new(
+            remote.codec().await.capability,
+            remote.id().await,
+            remote.stream_id().await,
+        ));
+
+        debug!(
+            "MediaTrackSubscriber created track={} stream={}",
+            output_track.id(),
+            output_track.stream_id()
+        );
+        MediaTrackSubscriber {
+            track: output_track,
+            pkt_receiver: pkt_receiver,
+        }
+    }
+
+    pub async fn add_to_peer_connection(&self, peer_connection: &RTCPeerConnection) -> Result<()> {
+        debug!("MediaTrackSubscriber added to peer_connection");
+        // Add this newly created track to the PeerConnection
+        let rtp_sender = peer_connection
+            .add_track(Arc::clone(&self.track) as Arc<dyn TrackLocal + Send + Sync>)
+            .await?;
+
+        // Read incoming RTCP packets
+        // Before these packets are returned they are processed by interceptors. For things
+        // like NACK this needs to be called.
+        tokio::spawn(async move {
+            let mut rtcp_buf = vec![0u8; 1500];
+            while let Ok((_, _)) = rtp_sender.read(&mut rtcp_buf).await {}
+            Result::<()>::Ok(())
+        });
+
+        Ok(())
+    }
+
+    pub async fn event_loop(&mut self) {
+        debug!(
+            "MediaTrackSubscriber starting track={} stream={}",
+            self.track.id(),
+            self.track.stream_id()
+        );
+
+        // Asynchronously take all packets in the channel and write them out to our
+        // track
+        let mut curr_timestamp = 0;
+        let mut i = 0;
+
+        while let Ok(mut packet) = self.pkt_receiver.recv().await {
+            // Timestamp on the packet is really a diff, so add it to current
+            curr_timestamp += packet.header.timestamp;
+            packet.header.timestamp = curr_timestamp;
+            // Keep an increasing sequence number
+            packet.header.sequence_number = i;
+
+            trace!(
+                "MediaTrackSubscriber wrote RTP ssrc={} seq={} timestamp={}",
+                packet.header.ssrc,
+                packet.header.sequence_number,
+                packet.header.timestamp
+            );
+
+            // Write out the packet, ignoring closed pipe if nobody is listening
+            if let Err(err) = self.track.write_rtp(&packet).await {
+                if Error::ErrClosedPipe == err {
+                    // The peerConnection has been closed.
+                    return;
+                } else {
+                    error!("MediaTrackSubscriber failed {}", err);
+                }
+            }
+            i += 1;
+        }
+
+        debug!(
+            "MediaTrackSubscriber stopped track={} stream={}",
+            self.track.id(),
+            self.track.stream_id()
+        );
     }
 }

@@ -39,5 +39,7 @@ async fn accept_connection(stream: TcpStream) {
     sig_tx.close().await.expect("closed signal tx");
     peer.close().await;
 
+    drop(peer);
+
     info!("client disconnected");
 }
