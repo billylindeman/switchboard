@@ -3,24 +3,38 @@ use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::rtcp;
+use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp;
+use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
+use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
 use webrtc::Error;
 
+use super::peer;
+
 pub struct MediaTrackRouter {
     track_remote: Arc<TrackRemote>,
-
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
+    rtcp_writer: peer::RtcpWriter,
+
     _packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    _rtp_receiver: Arc<RTCRtpReceiver>,
 }
 
 impl MediaTrackRouter {
-    pub fn new(track_remote: Arc<TrackRemote>) -> MediaTrackRouter {
+    pub fn new(
+        track_remote: Arc<TrackRemote>,
+        rtp_receiver: Arc<RTCRtpReceiver>,
+        rtcp_writer: peer::RtcpWriter,
+    ) -> MediaTrackRouter {
         let (pkt_tx, pkt_rx) = broadcast::channel(512);
         MediaTrackRouter {
             track_remote: track_remote,
+            _rtp_receiver: rtp_receiver,
+            rtcp_writer: rtcp_writer,
 
             packet_sender: pkt_tx,
             _packet_receiver: pkt_rx,
@@ -139,11 +153,7 @@ impl MediaTrackSubscriber {
         // Read incoming RTCP packets
         // Before these packets are returned they are processed by interceptors. For things
         // like NACK this needs to be called.
-        tokio::spawn(async move {
-            let mut rtcp_buf = vec![0u8; 1500];
-            while let Ok((_, _)) = rtp_sender.read(&mut rtcp_buf).await {}
-            Result::<()>::Ok(())
-        });
+        tokio::spawn(async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender) });
 
         Ok(())
     }
@@ -191,5 +201,38 @@ impl MediaTrackSubscriber {
             self.track.id(),
             self.track.stream_id()
         );
+    }
+
+    pub async fn rtcp_event_loop(rtp_sender: Arc<RTCRtpSender>, rtcp_writer) {
+        use rtcp::header::{PacketType, FORMAT_PLI};
+
+        while let Ok((rtcp_packets, _)) = rtp_sender.read_rtcp().await {
+            for rtcp in rtcp_packets.into_iter() {
+                trace!("got rtcp {:#?}", rtcp);
+
+                let header = rtcp.header();
+                match header.packet_type {
+                    PacketType::ReceiverReport => {
+                        let rr = &rtcp
+                            .as_any()
+                            .downcast_ref::<rtcp::receiver_report::ReceiverReport>()
+                            .unwrap();
+
+                        trace!("got receiver report: {:#?}", rr);
+                    }
+                    PacketType::PayloadSpecificFeedback => match header.count {
+                        FORMAT_PLI => {
+                            let pli = &rtcp
+                                    .as_any()
+                                    .downcast_ref::<rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication>()
+                                    .unwrap();
+                            trace!("got pli {:#?}", pli);
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
     }
 }

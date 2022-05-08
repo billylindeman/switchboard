@@ -2,12 +2,12 @@ use anyhow::{format_err, Result};
 use async_mutex::Mutex;
 use enclose::enc;
 use futures::StreamExt;
+use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
-use std::time::Duration;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
+use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
 use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
@@ -16,10 +16,7 @@ use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
-use webrtc::rtp_transceiver::rtp_codec::{
-    RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
-};
+use webrtc::rtcp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::track::track_remote::TrackRemote;
 
@@ -29,18 +26,29 @@ use crate::signal::signal;
 const TRANSPORT_TARGET_PUB: u32 = 0;
 const TRANSPORT_TARGET_SUB: u32 = 1;
 
+pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
+pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
+
 pub struct Peer {
     pub publisher: Arc<RTCPeerConnection>,
+    pub pub_rtcp_writer: RtcpWriter,
+
     pub subscriber: Arc<RTCPeerConnection>,
+    pub sub_rtcp_writer: RtcpWriter,
 
     pub sub_pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
 }
 
 impl Peer {
     pub async fn new() -> Result<Peer> {
+        let (publisher, pub_rtcp_writer) = build_peer_connection().await?;
+        let (subscriber, sub_rtcp_writer) = build_peer_connection().await?;
+
         Ok(Peer {
-            publisher: Arc::new(build_peer_connection().await?),
-            subscriber: Arc::new(build_peer_connection().await?),
+            publisher,
+            pub_rtcp_writer,
+            subscriber,
+            sub_rtcp_writer,
             sub_pending_candidates: Arc::new(Mutex::new(vec![])),
         })
     }
@@ -143,13 +151,16 @@ impl Peer {
         let pub_pc = Arc::downgrade(&self.publisher);
         let sub_pc = Arc::downgrade(&self.subscriber);
 
+        let pub_rtcp_tx = self.pub_rtcp_writer.clone();
         self.publisher
             .on_track(Box::new(enc!( (pub_pc, sub_pc) {
-                move |track: Option<Arc<TrackRemote>>, _receiver: Option<Arc<RTCRtpReceiver>>| {
-                    Box::pin( enc!( (pub_pc, sub_pc) async move {
-                    if let Some(track) = track {
-                        let media_track_router = MediaTrackRouter::new(track);
+                move |track: Option<Arc<TrackRemote>>, receiver: Option<Arc<RTCRtpReceiver>>| {
+                    Box::pin( enc!( (pub_pc, sub_pc, pub_rtcp_tx) async move {
+
+                    if let (Some(track), Some(receiver)) = (track,receiver) {
+                        let media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx);
                         media_track_router.event_loop().await;
+
 
                         if let Some(sub_pc) = sub_pc.upgrade() {
 
@@ -271,7 +282,7 @@ impl Peer {
     }
 }
 
-async fn build_peer_connection() -> Result<RTCPeerConnection> {
+async fn build_peer_connection() -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
     m.register_default_codecs()?;
@@ -303,7 +314,22 @@ async fn build_peer_connection() -> Result<RTCPeerConnection> {
     trace!("building peer connection");
 
     // Create a new RTCPeerConnection
-    let peer_connection = api.new_peer_connection(config).await?;
+    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
 
-    Ok(peer_connection)
+    let (rtcp_tx, mut rtcp_rx) = mpsc::channel(32);
+
+    // Spawn RTCP Write Loop
+    tokio::spawn(enc!( (peer_connection) async move {
+        debug!("Peer RTCP WriteLoop: started");
+
+        while let Some(rtcp) = rtcp_rx.next().await {
+            if let Err(e) = peer_connection.write_rtcp(&[rtcp]).await {
+                error!("Peer RTCP WriteLoop: error writing rtcp {} ", e);
+            }
+        }
+
+        debug!("Peer RTCP WriteLoop: ended");
+    }));
+
+    Ok((peer_connection, rtcp_tx))
 }
