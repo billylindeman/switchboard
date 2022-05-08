@@ -9,9 +9,16 @@ use futures_channel::{mpsc, oneshot};
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Id {
+    Uuid(String),
+    Int(i32),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct Request {
-    pub id: String,
+    pub id: Id,
     pub method: String,
     pub params: Map<String, Value>,
 
@@ -22,7 +29,7 @@ pub struct Request {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct Response {
-    pub id: String,
+    pub id: Id,
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Map<String, Value>>,
@@ -61,10 +68,18 @@ pub async fn handle_messages(
         let mut incoming_fut = read
             .map_err(|err| error!("websocket error: {}", err))
             .try_filter(|msg| future::ready(msg.is_text()))
+            .map_ok(|msg| {
+                trace!("websocket got msg {}", msg);
+                msg
+            })
             .map(|msg| serde_json::from_str::<Event>(msg.unwrap().to_text().unwrap()))
             .map_err(|err| {
                 error!("error parsing json: {}", err);
                 err.into()
+            })
+            .map_ok(|msg| {
+                trace!("jsonrpc got event: {:#?}", msg);
+                msg
             })
             .filter(|r| future::ready(r.is_ok()))
             .map(Ok)
