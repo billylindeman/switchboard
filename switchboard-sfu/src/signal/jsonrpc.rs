@@ -71,7 +71,16 @@ pub async fn handle_messages(
             .forward(read_tx);
 
         let mut outgoing_fut = write_rx
-            .map_ok(|evt| serde_json::to_string(&evt).unwrap())
+            .map_ok(|evt| serde_json::to_value(&evt).unwrap())
+            .map_ok(|v| match v {
+                Value::Object(m) => {
+                    let mut m = m.clone();
+                    m.insert("jsonrpc".to_owned(), Value::String("2.0".to_owned()));
+                    Value::Object(m)
+                }
+                v => v.clone(),
+            })
+            .map_ok(|v| serde_json::to_string(&v).unwrap())
             .map_ok(|msg| tungstenite::Message::from(msg))
             .map_err(|_| tungstenite::error::Error::ConnectionClosed)
             .forward(write);

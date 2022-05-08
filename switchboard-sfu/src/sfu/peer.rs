@@ -3,8 +3,8 @@ use async_mutex::Mutex;
 use enclose::enc;
 use futures::StreamExt;
 use log::*;
-use std::iter::Iterator;
 use std::sync::Arc;
+use std::time::Duration;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
@@ -29,8 +29,8 @@ const TRANSPORT_TARGET_PUB: u32 = 0;
 const TRANSPORT_TARGET_SUB: u32 = 1;
 
 pub struct Peer {
-    pub publisher: RTCPeerConnection,
-    pub subscriber: RTCPeerConnection,
+    pub publisher: Arc<RTCPeerConnection>,
+    pub subscriber: Arc<RTCPeerConnection>,
 
     pub sub_pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
 }
@@ -38,8 +38,8 @@ pub struct Peer {
 impl Peer {
     pub async fn new() -> Result<Peer> {
         Ok(Peer {
-            publisher: build_peer_connection().await?,
-            subscriber: build_peer_connection().await?,
+            publisher: Arc::new(build_peer_connection().await?),
+            subscriber: Arc::new(build_peer_connection().await?),
             sub_pending_candidates: Arc::new(Mutex::new(vec![])),
         })
     }
@@ -136,6 +136,51 @@ impl Peer {
                     }
                 }))
             })))
+            .await;
+
+        //@test loopback tracks atm
+        let pub_pc = Arc::downgrade(&self.publisher);
+        let sub_pc = Arc::downgrade(&self.subscriber);
+
+        let (packets_tx, mut packets_rx) =
+            tokio::sync::mpsc::channel::<webrtc::rtp::packet::Packet>(60);
+        let packets_tx = Arc::new(packets_tx);
+
+        self.publisher
+            .on_track(Box::new(enc!( (pub_pc, sub_pc, packets_tx) {
+                move |track: Option<Arc<TrackRemote>>, _receiver: Option<Arc<RTCRtpReceiver>>| {
+                    Box::pin( enc!( (pub_pc, sub_pc) async move {
+                    if let Some(track) = track {
+                        // Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
+                        let media_ssrc = track.ssrc();
+                        tokio::spawn(enc!( (pub_pc, sub_pc) async move {
+                            let mut result = Result::<usize>::Ok(0);
+                            while result.is_ok() {
+                                let timeout = tokio::time::sleep(Duration::from_secs(3));
+                                tokio::pin!(timeout);
+
+                                tokio::select! {
+                                    _ = timeout.as_mut() =>{
+                                        if let Some(pub_pc) = pub_pc.upgrade(){
+                                            result = pub_pc.write_rtcp(&[Box::new(PictureLossIndication{
+                                                sender_ssrc: 0,
+                                                media_ssrc,
+                                            })]).await.map_err(Into::into);
+                                        }else{
+                                            break;
+                                        }
+                                    }
+                                };
+                            }
+                        }));
+
+
+                    } else {
+                        warn!("on track called with no track!");
+                    }
+                }))
+                }}
+            )))
             .await;
 
         let _ = self
