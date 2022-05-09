@@ -158,26 +158,15 @@ impl Peer {
                     Box::pin( enc!( (pub_pc, sub_pc, pub_rtcp_tx) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
-                        let media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx);
+                        let mut media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx);
                         media_track_router.event_loop().await;
 
-
                         if let Some(sub_pc) = sub_pc.upgrade() {
-
-                        let mut media_track_subscriber = media_track_router.add_subscriber().await;
-                        media_track_subscriber.add_to_peer_connection(&sub_pc).await.expect("error adding track subscriber to peer_connection");
-                        tokio::spawn(async move {
-                            media_track_subscriber.event_loop().await;
-                        });
-
-                        let mut media_track_subscriber2 = media_track_router.add_subscriber().await;
-                        media_track_subscriber2.add_to_peer_connection(&sub_pc).await.expect("error adding track subscriber to peer_connection");
-                        tokio::spawn(async move {
-                            media_track_subscriber2.event_loop().await;
-                        });
-
-
-
+                            let mut media_track_subscriber = media_track_router.add_subscriber().await;
+                            media_track_subscriber.add_to_peer_connection(&sub_pc).await.expect("error adding track subscriber to peer_connection");
+                            tokio::spawn(async move {
+                                media_track_subscriber.event_loop().await;
+                            });
                         }
 
                     } else {

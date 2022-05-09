@@ -21,8 +21,8 @@ pub struct MediaTrackRouter {
     track_remote: Arc<TrackRemote>,
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
 
-    rtcp_writer: Arc<peer::RtcpWriter>,
-    event_rx: Arc<mpsc::Receiver<MediaTrackSubscriberEvent>>,
+    rtcp_writer: Option<peer::RtcpWriter>,
+    event_rx: Option<mpsc::Receiver<MediaTrackSubscriberEvent>>,
     event_tx: mpsc::Sender<MediaTrackSubscriberEvent>,
 
     _packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
@@ -42,8 +42,8 @@ impl MediaTrackRouter {
         MediaTrackRouter {
             track_remote: track_remote,
             _rtp_receiver: rtp_receiver,
-            rtcp_writer: Arc::new(rtcp_writer),
-            event_rx: Arc::new(evt_rx),
+            rtcp_writer: Some(rtcp_writer),
+            event_rx: Some(evt_rx),
             event_tx: evt_tx,
 
             packet_sender: pkt_tx,
@@ -60,7 +60,7 @@ impl MediaTrackRouter {
     }
 
     // Process RTCP & RTP packets for this track
-    pub async fn event_loop(&self) {
+    pub async fn event_loop(&mut self) {
         let track = self.track_remote.clone();
         let packet_sender = self.packet_sender.clone();
         tokio::spawn(async move {
@@ -106,16 +106,21 @@ impl MediaTrackRouter {
         });
 
         let media_ssrc = self.track_remote.ssrc();
-        let mut event_rx = self.event_rx.clone();
-        let mut rtcp_writer = self.rtcp_writer.clone();
+        let event_rx = self.event_rx.take();
+        let rtcp_writer = self.rtcp_writer.take();
         tokio::spawn(async move {
-            while let Some(event) = event_rx.next().await {
-                match event {
-                    PictureLossIndication => {
-                        rtcp_writer.try_send(Box::new(PictureLossIndication {
-                            sender_ssrc: 0,
-                            media_ssrc,
-                        }));
+            if let (Some(mut event_rx), Some(mut rtcp_writer)) = (event_rx, rtcp_writer) {
+                while let Some(event) = event_rx.next().await {
+                    match event {
+                        MediaTrackSubscriberEvent::PictureLossIndication => {
+                            trace!("MediaTrackRouter forwarding PLI from MediaTrackSubscriber");
+                            rtcp_writer
+                                .try_send(Box::new(PictureLossIndication {
+                                    sender_ssrc: 0,
+                                    media_ssrc,
+                                }))
+                                .expect("Couldn't forward PLI to MediaTrackRouter");
+                        }
                     }
                 }
             }
@@ -134,7 +139,7 @@ pub struct MediaTrackSubscriber {
 }
 
 impl MediaTrackSubscriber {
-    pub async fn new(
+    async fn new(
         remote: &TrackRemote,
         pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
         evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
@@ -170,7 +175,9 @@ impl MediaTrackSubscriber {
         // Read incoming RTCP packets
         // Before these packets are returned they are processed by interceptors. For things
         // like NACK this needs to be called
-        tokio::spawn(async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender, evt_sender) });
+        tokio::spawn(
+            async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender, evt_sender).await },
+        );
 
         Ok(())
     }
@@ -220,15 +227,21 @@ impl MediaTrackSubscriber {
         );
     }
 
-    pub async fn rtcp_event_loop(
+    async fn rtcp_event_loop(
         rtp_sender: Arc<RTCRtpSender>,
         mut evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
     ) {
         use rtcp::header::{PacketType, FORMAT_PLI};
 
-        while let Ok((rtcp_packets, _)) = rtp_sender.read_rtcp().await {
+        debug!("MediaTrackSubscriber RTCP ReadLoop starting");
+
+        while let Ok((rtcp_packets, attr)) = rtp_sender.read_rtcp().await {
             for rtcp in rtcp_packets.into_iter() {
-                trace!("got rtcp {:#?}", rtcp);
+                trace!(
+                    "MediaTrackRouter RTCP ReadLoop => rtcp={:#?} attr={:#?}",
+                    rtcp,
+                    attr
+                );
 
                 let header = rtcp.header();
                 match header.packet_type {
@@ -237,8 +250,6 @@ impl MediaTrackSubscriber {
                             .as_any()
                             .downcast_ref::<rtcp::receiver_report::ReceiverReport>()
                             .unwrap();
-
-                        trace!("got receiver report: {:#?}", rr);
                     }
                     PacketType::PayloadSpecificFeedback => match header.count {
                         FORMAT_PLI => {
@@ -246,8 +257,6 @@ impl MediaTrackSubscriber {
                                     .as_any()
                                     .downcast_ref::<rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication>()
                                     .unwrap();
-                            trace!("got pli {:#?}", pli);
-
                             evt_sender
                                 .try_send(MediaTrackSubscriberEvent::PictureLossIndication)
                                 .unwrap();
@@ -258,5 +267,7 @@ impl MediaTrackSubscriber {
                 }
             }
         }
+
+        debug!("MediaTrackSubscriber RTCP ReadLoop stopped");
     }
 }
