@@ -1,4 +1,6 @@
 use anyhow::Result;
+use futures::{Stream, StreamExt};
+use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -18,7 +20,10 @@ use super::peer;
 pub struct MediaTrackRouter {
     track_remote: Arc<TrackRemote>,
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
-    rtcp_writer: peer::RtcpWriter,
+
+    rtcp_writer: Arc<peer::RtcpWriter>,
+    event_rx: Arc<mpsc::Receiver<MediaTrackSubscriberEvent>>,
+    event_tx: mpsc::Sender<MediaTrackSubscriberEvent>,
 
     _packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
     _rtp_receiver: Arc<RTCRtpReceiver>,
@@ -31,10 +36,15 @@ impl MediaTrackRouter {
         rtcp_writer: peer::RtcpWriter,
     ) -> MediaTrackRouter {
         let (pkt_tx, pkt_rx) = broadcast::channel(512);
+
+        let (evt_tx, evt_rx) = mpsc::channel(32);
+
         MediaTrackRouter {
             track_remote: track_remote,
             _rtp_receiver: rtp_receiver,
-            rtcp_writer: rtcp_writer,
+            rtcp_writer: Arc::new(rtcp_writer),
+            event_rx: Arc::new(evt_rx),
+            event_tx: evt_tx,
 
             packet_sender: pkt_tx,
             _packet_receiver: pkt_rx,
@@ -43,7 +53,10 @@ impl MediaTrackRouter {
 
     pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
         trace!("MediaTrackRouter adding new subscriber");
-        MediaTrackSubscriber::new(&self.track_remote, self.packet_sender.subscribe()).await
+
+        let event_tx = self.event_tx.clone();
+        MediaTrackSubscriber::new(&self.track_remote, self.packet_sender.subscribe(), event_tx)
+            .await
     }
 
     // Process RTCP & RTP packets for this track
@@ -92,39 +105,39 @@ impl MediaTrackRouter {
             );
         });
 
-        //let media_ssrc = self.track_remote.ssrc();
-        //tokio::spawn(async move {
-        //    let mut result = Result::<usize>::Ok(0);
-        //    while result.is_ok() {
-        //        let timeout = tokio::time::sleep(Duration::from_secs(3));
-        //        tokio::pin!(timeout);
-
-        //        tokio::select! {
-        //            _ = timeout.as_mut() =>{
-        //                if let Some(pub_pc) = pub_pc.upgrade(){
-        //                    result = pub_pc.write_rtcp(&[Box::new(PictureLossIndication{
-        //                        sender_ssrc: 0,
-        //                        media_ssrc,
-        //                    })]).await.map_err(Into::into);
-        //                }else{
-        //                    break;
-        //                }
-        //            }
-        //        };
-        //    }
-        //});
+        let media_ssrc = self.track_remote.ssrc();
+        let mut event_rx = self.event_rx.clone();
+        let mut rtcp_writer = self.rtcp_writer.clone();
+        tokio::spawn(async move {
+            while let Some(event) = event_rx.next().await {
+                match event {
+                    PictureLossIndication => {
+                        rtcp_writer.try_send(Box::new(PictureLossIndication {
+                            sender_ssrc: 0,
+                            media_ssrc,
+                        }));
+                    }
+                }
+            }
+        });
     }
+}
+
+enum MediaTrackSubscriberEvent {
+    PictureLossIndication,
 }
 
 pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
     pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
 }
 
 impl MediaTrackSubscriber {
     pub async fn new(
         remote: &TrackRemote,
         pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+        evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
     ) -> MediaTrackSubscriber {
         let output_track = Arc::new(TrackLocalStaticRTP::new(
             remote.codec().await.capability,
@@ -140,20 +153,24 @@ impl MediaTrackSubscriber {
         MediaTrackSubscriber {
             track: output_track,
             pkt_receiver: pkt_receiver,
+            evt_sender: evt_sender,
         }
     }
 
     pub async fn add_to_peer_connection(&self, peer_connection: &RTCPeerConnection) -> Result<()> {
         debug!("MediaTrackSubscriber added to peer_connection");
+
         // Add this newly created track to the PeerConnection
         let rtp_sender = peer_connection
             .add_track(Arc::clone(&self.track) as Arc<dyn TrackLocal + Send + Sync>)
             .await?;
 
+        let evt_sender = self.evt_sender.clone();
+
         // Read incoming RTCP packets
         // Before these packets are returned they are processed by interceptors. For things
-        // like NACK this needs to be called.
-        tokio::spawn(async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender) });
+        // like NACK this needs to be called
+        tokio::spawn(async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender, evt_sender) });
 
         Ok(())
     }
@@ -203,7 +220,10 @@ impl MediaTrackSubscriber {
         );
     }
 
-    pub async fn rtcp_event_loop(rtp_sender: Arc<RTCRtpSender>, rtcp_writer) {
+    pub async fn rtcp_event_loop(
+        rtp_sender: Arc<RTCRtpSender>,
+        mut evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
+    ) {
         use rtcp::header::{PacketType, FORMAT_PLI};
 
         while let Ok((rtcp_packets, _)) = rtp_sender.read_rtcp().await {
@@ -227,6 +247,10 @@ impl MediaTrackSubscriber {
                                     .downcast_ref::<rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication>()
                                     .unwrap();
                             trace!("got pli {:#?}", pli);
+
+                            evt_sender
+                                .try_send(MediaTrackSubscriberEvent::PictureLossIndication)
+                                .unwrap();
                         }
                         _ => {}
                     },
