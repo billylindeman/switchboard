@@ -21,7 +21,7 @@ use webrtc::rtcp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::track::track_remote::TrackRemote;
 
-use super::media_track_router::*;
+use crate::sfu::routing::*;
 use crate::signal::signal;
 
 // Peer ID unique to the connection/websocket
@@ -162,7 +162,7 @@ impl Peer {
                     Box::pin( enc!( (pub_pc, sub_pc, pub_rtcp_tx) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
-                        let mut media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx);
+                        let mut media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
                         media_track_router.event_loop().await;
 
                         if let Some(sub_pc) = sub_pc.upgrade() {

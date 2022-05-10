@@ -1,9 +1,11 @@
 use anyhow::Result;
+use async_mutex::Mutex;
 use futures::{Stream, StreamExt};
 use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
@@ -17,7 +19,11 @@ use webrtc::Error;
 
 use super::peer;
 
+pub type Id = String;
+pub type MediaTrackRouterHandle = Arc<Mutex<MediaTrackRouter>>;
+
 pub struct MediaTrackRouter {
+    id: Id,
     track_remote: Arc<TrackRemote>,
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
 
@@ -30,7 +36,7 @@ pub struct MediaTrackRouter {
 }
 
 impl MediaTrackRouter {
-    pub fn new(
+    pub async fn new(
         track_remote: Arc<TrackRemote>,
         rtp_receiver: Arc<RTCRtpReceiver>,
         rtcp_writer: peer::RtcpWriter,
@@ -40,6 +46,7 @@ impl MediaTrackRouter {
         let (evt_tx, evt_rx) = mpsc::channel(32);
 
         MediaTrackRouter {
+            id: track_remote.id().await,
             track_remote: track_remote,
             _rtp_receiver: rtp_receiver,
             rtcp_writer: Some(rtcp_writer),
