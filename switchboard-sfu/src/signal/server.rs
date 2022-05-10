@@ -1,15 +1,16 @@
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use log::*;
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 
 use super::*;
 
-use crate::sfu::coordinator;
-use crate::sfu::session;
+use crate::sfu;
+use crate::sfu::coordinator::{Coordinator, LocalCoordinator};
+use crate::sfu::session::{LocalSession, Session};
 
 pub async fn run_server(addr: &str) {
-    let coordinator: coordinator::LocalCoordinator<session::LocalSession> =
-        coordinator::LocalCoordinator::new();
+    let coordinator: Arc<LocalCoordinator<LocalSession>> = LocalCoordinator::new();
 
     // Create the event loop and TCP listener we'll accept connections on.
     let try_socket = TcpListener::bind(&addr).await;
@@ -21,7 +22,12 @@ pub async fn run_server(addr: &str) {
     }
 }
 
-async fn accept_connection<C: coordinator::Coordinator<S>>(coordinator: C, stream: TcpStream) {
+/// Handles a websocket connection for a given Coordinator<S>
+async fn accept_connection<C, S>(coordinator: Arc<C>, stream: TcpStream)
+where
+    C: Coordinator<S>,
+    S: Session,
+{
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
