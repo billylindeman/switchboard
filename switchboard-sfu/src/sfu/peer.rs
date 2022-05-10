@@ -5,6 +5,7 @@ use futures::StreamExt;
 use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
@@ -22,6 +23,9 @@ use webrtc::track::track_remote::TrackRemote;
 
 use super::media_track_router::*;
 use crate::signal::signal;
+
+// Peer ID unique to the connection/websocket
+pub type Id = Uuid;
 
 const TRANSPORT_TARGET_PUB: u32 = 0;
 const TRANSPORT_TARGET_SUB: u32 = 1;

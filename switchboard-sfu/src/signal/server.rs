@@ -3,20 +3,25 @@ use log::*;
 use tokio::net::{TcpListener, TcpStream};
 
 use super::*;
-use crate::sfu;
+
+use crate::sfu::coordinator;
+use crate::sfu::session;
 
 pub async fn run_server(addr: &str) {
+    let coordinator: coordinator::LocalCoordinator<session::LocalSession> =
+        coordinator::LocalCoordinator::new();
+
     // Create the event loop and TCP listener we'll accept connections on.
     let try_socket = TcpListener::bind(&addr).await;
     let listener = try_socket.expect("Failed to bind");
     info!("Listening on: {}", addr);
 
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+        tokio::spawn(accept_connection(coordinator.clone(), stream));
     }
 }
 
-async fn accept_connection(stream: TcpStream) {
+async fn accept_connection<C: coordinator::Coordinator<S>>(coordinator: C, stream: TcpStream) {
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
