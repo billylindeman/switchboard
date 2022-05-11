@@ -1,7 +1,7 @@
 use anyhow::{format_err, Result};
 use async_mutex::Mutex;
 use enclose::enc;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
@@ -21,7 +21,9 @@ use webrtc::rtcp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::track::track_remote::TrackRemote;
 
+use crate::sfu::coordinator::Coordinator;
 use crate::sfu::routing::*;
+use crate::sfu::session::{self, SessionEvent};
 use crate::signal::signal;
 
 // Peer ID unique to the connection/websocket
@@ -33,7 +35,9 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 
+
 pub struct Peer {
+    pub id: Id,
     pub publisher: Arc<RTCPeerConnection>,
     pub pub_rtcp_writer: RtcpWriter,
 
@@ -44,21 +48,29 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub async fn new() -> Result<Peer> {
+    pub async fn new(
+        signal_tx: signal::WriteStream,
+        session_tx: mpsc::Sender<SessionEvent>,
+    ) -> Result<Arc<Peer>> {
         let (publisher, pub_rtcp_writer) = build_peer_connection().await?;
         let (subscriber, sub_rtcp_writer) = build_peer_connection().await?;
 
-        Ok(Peer {
+        let mut peer = Peer {
+            id: Uuid::new_v4(),
             publisher,
             pub_rtcp_writer,
             subscriber,
             sub_rtcp_writer,
             sub_pending_candidates: Arc::new(Mutex::new(vec![])),
-        })
+        };
+
+        peer.setup_signal_hooks(signal_tx, session_tx).await;
+
+        Ok(Arc::new(peer))
     }
 
     pub async fn publisher_get_answer_for_offer(
-        &mut self,
+        &self,
         offer: RTCSessionDescription,
     ) -> Result<RTCSessionDescription> {
         debug!("publisher set remote description");
@@ -73,7 +85,7 @@ impl Peer {
         }
     }
 
-    pub async fn subscriber_create_offer(&mut self) -> Result<RTCSessionDescription> {
+    pub async fn subscriber_create_offer(&self) -> Result<RTCSessionDescription> {
         let offer = self.subscriber.create_offer(None).await?;
 
         let mut offer_gathering_complete = self.subscriber.gathering_complete_promise().await;
@@ -84,7 +96,7 @@ impl Peer {
         Ok(offer)
     }
 
-    pub async fn subscriber_set_answer(&mut self, answer: RTCSessionDescription) -> Result<()> {
+    pub async fn subscriber_set_answer(&self, answer: RTCSessionDescription) -> Result<()> {
         self.subscriber.set_remote_description(answer).await?;
 
         if let mut pending_candidates = self.sub_pending_candidates.lock().await {
@@ -99,7 +111,7 @@ impl Peer {
     }
 
     // Adds a MediaTrackSubscriber to this peer's subscriber peer_connection
-    pub async fn add_media_track_subscriber(&mut self, mut subscriber: MediaTrackSubscriber) {
+    pub async fn add_media_track_subscriber(&self, mut subscriber: MediaTrackSubscriber) {
         subscriber
             .add_to_peer_connection(&self.subscriber)
             .await
@@ -144,13 +156,17 @@ impl Peer {
         self.publisher.close().await.unwrap();
     }
 
-    pub async fn event_loop(&mut self, mut rx: signal::ReadStream, tx: signal::WriteStream) {
+    pub async fn setup_signal_hooks(
+        &mut self,
+        sig_tx: signal::WriteStream,
+        session_tx: session::WriteStream,
+    ) {
         self.publisher
-            .on_ice_candidate(Box::new(enc!( (tx) move |c: Option<RTCIceCandidate>| {
-                Box::pin(enc!( (tx) async move {
+            .on_ice_candidate(Box::new(enc!( (sig_tx) move |c: Option<RTCIceCandidate>| {
+                Box::pin(enc!( (sig_tx) async move {
                     if let Some(c) = c {
                         info!("on ice candidate publisher: {}", c);
-                        tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
                             target: TRANSPORT_TARGET_PUB,
                             candidate: c
                                 .to_json()
@@ -169,13 +185,18 @@ impl Peer {
 
         let pub_rtcp_tx = self.pub_rtcp_writer.clone();
         self.publisher
-            .on_track(Box::new(enc!( (pub_pc, sub_pc) {
+            .on_track(Box::new(enc!( (session_tx) {
                 move |track: Option<Arc<TrackRemote>>, receiver: Option<Arc<RTCRtpReceiver>>| {
-                    Box::pin( enc!( (pub_pc, sub_pc, pub_rtcp_tx) async move {
+                    Box::pin( enc!( (mut session_tx, pub_rtcp_tx) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
-                        let mut media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
-                        media_track_router.event_loop().await;
+                        let media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
+                        session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
+
+                        tokio::spawn(async move {
+                            let mut r = media_track_router.lock().await; 
+                            r.event_loop();
+                        });
                     } else {
                         warn!("on track called with no track!");
                     }
@@ -190,11 +211,11 @@ impl Peer {
             .await;
 
         self.subscriber
-            .on_ice_candidate(Box::new(enc!( (tx) move |c: Option<RTCIceCandidate>| {
-                Box::pin(enc!( (tx) async move {
+            .on_ice_candidate(Box::new(enc!( (sig_tx) move |c: Option<RTCIceCandidate>| {
+                Box::pin(enc!( (sig_tx) async move {
                     if let Some(c) = c {
                         info!("on ice candidate subscriber: {}", c);
-                        tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
                             target: TRANSPORT_TARGET_SUB,
                             candidate: c
                                 .to_json()
@@ -208,8 +229,8 @@ impl Peer {
             .await;
 
         self.subscriber
-            .on_negotiation_needed(Box::new(enc!( (tx, sub_pc) move || {
-                Box::pin(enc!( (tx, sub_pc) async move {
+            .on_negotiation_needed(Box::new(enc!( (sig_tx, sub_pc) move || {
+                Box::pin(enc!( (sig_tx, sub_pc) async move {
                     info!("subscriber on_negotiation_needed");
 
                     if let Some(sub_pc) = sub_pc.upgrade() {
@@ -218,63 +239,12 @@ impl Peer {
                         let offer = sub_pc.local_description().await.unwrap();
 
                         info!("subscriber sending offer");
-                        tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
+                        sig_tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
                             .expect("error sending subscriber offer");
                     }
                 }))
             })))
             .await;
-
-        //if let Ok(offer) = self.subscriber_create_offer().await {
-        //    info!("sending subscriber offer");
-        //    tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
-        //        .expect("error sending subscriber offer");
-        //}
-
-        while let Some(Ok(evt)) = rx.next().await {
-            match evt {
-                signal::Event::JoinRequest(res, join) => {
-                    info!("got join request: {:#?}", join);
-
-                    let answer = self.publisher_get_answer_for_offer(join.offer).await;
-                    if let Err(err) = &answer {
-                        error!("Error with join offer {}", err);
-                    };
-
-                    info!("answer created ");
-
-                    res.send(answer.unwrap()).expect("error sending response");
-                }
-
-                signal::Event::TrickleIce(trickle) => {
-                    info!("trickle ice: {:#?}", trickle);
-                    self.trickle_ice_candidate(trickle.target, trickle.candidate.into())
-                        .await
-                        .expect("error adding trickle candidate");
-                }
-
-                signal::Event::PublisherOffer(res, offer) => {
-                    info!("publisher made offer");
-
-                    let answer = self
-                        .publisher_get_answer_for_offer(offer.desc)
-                        .await
-                        .expect("publisher error setting remote description");
-
-                    res.send(answer).expect("error sending answer");
-                }
-
-                signal::Event::SubscriberAnswer(answer) => {
-                    info!("subscriber got answer");
-                    self.subscriber_set_answer(answer.desc)
-                        .await
-                        .expect("subscriber error setting remote description");
-                }
-                _ => {}
-            }
-        }
-
-        info!("event loop finished")
     }
 }
 

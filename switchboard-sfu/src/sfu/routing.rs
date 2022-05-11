@@ -40,12 +40,11 @@ impl MediaTrackRouter {
         track_remote: Arc<TrackRemote>,
         rtp_receiver: Arc<RTCRtpReceiver>,
         rtcp_writer: peer::RtcpWriter,
-    ) -> MediaTrackRouter {
+    ) -> MediaTrackRouterHandle {
         let (pkt_tx, pkt_rx) = broadcast::channel(512);
-
         let (evt_tx, evt_rx) = mpsc::channel(32);
 
-        MediaTrackRouter {
+        Arc::new(Mutex::new(MediaTrackRouter {
             id: track_remote.id().await,
             track_remote: track_remote,
             _rtp_receiver: rtp_receiver,
@@ -55,7 +54,7 @@ impl MediaTrackRouter {
 
             packet_sender: pkt_tx,
             _packet_receiver: pkt_rx,
-        }
+        }))
     }
 
     pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
@@ -67,7 +66,7 @@ impl MediaTrackRouter {
     }
 
     // Process RTCP & RTP packets for this track
-    pub async fn event_loop(&mut self) {
+    pub fn event_loop(&mut self) {
         let track = self.track_remote.clone();
         let packet_sender = self.packet_sender.clone();
         tokio::spawn(async move {

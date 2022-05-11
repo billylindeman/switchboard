@@ -13,13 +13,17 @@ use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;
 
 // SessionID represents a collection of peers that can route tracks to eachother
-pub type Id = Uuid;
+pub type Id = String;
 pub type SessionHandle<T> = Arc<T>;
+
+pub type ReadStream = mpsc::Receiver<SessionEvent>;
+pub type WriteStream = mpsc::Sender<SessionEvent>;
 
 #[async_trait]
 pub trait Session {
     fn new(id: Id) -> SessionHandle<Self>;
-    async fn add_peer(&self, id: peer::Id, peer: peer::Peer) -> Result<()>;
+    async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()>;
+    fn write_channel(&self) -> WriteStream;
 }
 
 pub enum SessionEvent {
@@ -28,8 +32,9 @@ pub enum SessionEvent {
 
 pub struct LocalSession {
     id: Id,
-    peers: Arc<Mutex<HashMap<peer::Id, peer::Peer>>>,
+    peers: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,
     routers: Arc<Mutex<HashMap<String, MediaTrackRouterHandle>>>,
+    tx: WriteStream,
 }
 
 #[async_trait]
@@ -41,6 +46,7 @@ impl Session for LocalSession {
             id: id,
             peers: Arc::new(Mutex::new(HashMap::new())),
             routers: Arc::new(Mutex::new(HashMap::new())),
+            tx: tx,
         });
 
         tokio::spawn(enc!((handle) async move { LocalSession::event_loop(handle, rx).await } ));
@@ -48,7 +54,11 @@ impl Session for LocalSession {
         handle
     }
 
-    async fn add_peer(&self, id: peer::Id, peer: peer::Peer) -> Result<()> {
+    fn write_channel(&self) -> WriteStream {
+        self.tx.clone()
+    }
+
+    async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()> {
         let mut peers = self.peers.lock().await;
 
         if peers.contains_key(&id) {

@@ -32,8 +32,8 @@ impl<S: session::Session + Send + Sync> Coordinator<S> for LocalCoordinator<S> {
         }
 
         debug!("LocalCoodinator starting new session id={}", id);
-        let session = S::new(id);
-        sessions.insert(id, session.clone());
+        let session = S::new(id.clone());
+        sessions.insert(id.clone(), session.clone());
         session
     }
 }
