@@ -66,7 +66,9 @@ impl Session for LocalSession {
             return Err(format_err!("Peer id={} already exists", id));
         }
 
+        self.subscribe_peer_to_all_routers(&peer).await;
         peers.insert(id, peer);
+
         Ok(())
     }
 }
@@ -92,6 +94,15 @@ impl LocalSession {
         let mut peers = self.peers.lock().await;
 
         for (_, peer) in &mut *peers {
+            let subscriber = { router.lock().await.add_subscriber().await };
+            peer.add_media_track_subscriber(subscriber).await;
+        }
+    }
+
+    async fn subscribe_peer_to_all_routers(&self, peer: &Arc<peer::Peer>) {
+        let mut routers = self.routers.lock().await;
+
+        for (_, router) in &mut *routers {
             let subscriber = { router.lock().await.add_subscriber().await };
             peer.add_media_track_subscriber(subscriber).await;
         }
