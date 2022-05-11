@@ -71,11 +71,19 @@ impl LocalSession {
     }
 
     async fn add_router(&self, router: MediaTrackRouterHandle) {
-        self.subscribe_all_peers_to_router(router).await;
+        self.subscribe_all_peers_to_router(&router).await;
 
+        let id = { router.lock().await.id.clone() };
         let mut routers = self.routers.lock().await;
-        routers.insert(router.id, router);
+        routers.insert(id, router);
     }
 
-    async fn subscribe_all_peers_to_router(&self, router: MediaTrackRouterHandle) {}
+    async fn subscribe_all_peers_to_router(&self, router: &MediaTrackRouterHandle) {
+        let mut peers = self.peers.lock().await;
+
+        for (_, peer) in &mut *peers {
+            let subscriber = { router.lock().await.add_subscriber().await };
+            peer.add_media_track_subscriber(subscriber).await;
+        }
+    }
 }

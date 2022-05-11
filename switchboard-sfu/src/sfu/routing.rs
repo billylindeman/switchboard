@@ -23,7 +23,7 @@ pub type Id = String;
 pub type MediaTrackRouterHandle = Arc<Mutex<MediaTrackRouter>>;
 
 pub struct MediaTrackRouter {
-    id: Id,
+    pub id: Id,
     track_remote: Arc<TrackRemote>,
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
 

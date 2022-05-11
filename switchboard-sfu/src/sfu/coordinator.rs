@@ -16,7 +16,7 @@ pub struct LocalCoordinator<S: session::Session> {
 }
 
 #[async_trait]
-impl<S: session::Session + Send> Coordinator<S> for LocalCoordinator<S> {
+impl<S: session::Session + Send + Sync> Coordinator<S> for LocalCoordinator<S> {
     fn new() -> Arc<LocalCoordinator<S>> {
         Arc::new(LocalCoordinator {
             sessions: Arc::new(Mutex::new(HashMap::new())),
