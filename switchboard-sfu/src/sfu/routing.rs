@@ -244,7 +244,7 @@ impl MediaTrackSubscriber {
         while let Ok((rtcp_packets, attr)) = rtp_sender.read_rtcp().await {
             for rtcp in rtcp_packets.into_iter() {
                 trace!(
-                    "MediaTrackRouter RTCP ReadLoop => rtcp={:#?} attr={:#?}",
+                    "MediaTrackSubscriber RTCP ReadLoop => rtcp={:#?} attr={:#?}",
                     rtcp,
                     attr
                 );

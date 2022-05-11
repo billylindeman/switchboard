@@ -27,7 +27,7 @@ impl<S: session::Session + Send + Sync> Coordinator<S> for LocalCoordinator<S> {
         let mut sessions = self.sessions.lock().await;
 
         if let Some(session) = sessions.get(&id) {
-            trace!("get_or_create_session id={} returning existing session", id);
+            debug!("LocalCoordinator found existing session id={} ", id);
             return session.clone();
         }
 

@@ -51,6 +51,7 @@ impl Session for LocalSession {
 
         tokio::spawn(enc!((handle) async move { LocalSession::event_loop(handle, rx).await } ));
 
+        debug!("LocalSession(id={}) started", handle.id);
         handle
     }
 
@@ -68,6 +69,8 @@ impl Session for LocalSession {
 
         self.subscribe_peer_to_all_routers(&peer).await;
         peers.insert(id, peer);
+
+        debug!("LocalSession(id={}) Added Peer(id={})", self.id, id);
 
         Ok(())
     }
