@@ -104,7 +104,7 @@ impl MediaTrackRouter {
                 }
             }
 
-            println!(
+            debug!(
                 "MediaTrackRouter has ended, of type {}: {}",
                 track.payload_type(),
                 track.codec().await.capability.mime_type
@@ -218,7 +218,8 @@ impl MediaTrackSubscriber {
             if let Err(err) = self.track.write_rtp(&packet).await {
                 if Error::ErrClosedPipe == err {
                     // The peerConnection has been closed.
-                    return;
+                    debug!("MediaTrackSubscriber write_rtp ErrClosedPipe");
+                    break;
                 } else {
                     error!("MediaTrackSubscriber failed {}", err);
                 }
