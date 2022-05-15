@@ -5,9 +5,9 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::*;
 
-use crate::sfu;
 use crate::sfu::coordinator::{Coordinator, LocalCoordinator};
 use crate::sfu::peer;
+use crate::sfu::session;
 use crate::sfu::session::{LocalSession, Session};
 
 pub async fn run_server(addr: &str) {
@@ -63,6 +63,7 @@ pub async fn event_loop<C, S>(
     S: Session,
 {
     let mut peer: Option<Arc<peer::Peer>> = None;
+    let mut joined_session: Option<session::SessionHandle<S>> = None;
 
     while let Some(Ok(evt)) = rx.next().await {
         match evt {
@@ -87,6 +88,7 @@ pub async fn event_loop<C, S>(
                     .expect("error adding peer to session");
 
                 peer = Some(p.clone());
+                joined_session = Some(session);
 
                 res.send(answer.unwrap()).expect("error sending response");
             }
@@ -134,5 +136,14 @@ pub async fn event_loop<C, S>(
         }
     }
 
-    info!("event loop finished")
+    info!("signal event loop finished");
+
+    if let Some(session) = joined_session {
+        if let Some(peer) = peer {
+            session
+                .remove_peer(peer.id)
+                .await
+                .expect("error removing peer");
+        }
+    }
 }

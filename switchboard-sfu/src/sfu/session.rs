@@ -23,6 +23,7 @@ pub type WriteStream = mpsc::Sender<SessionEvent>;
 pub trait Session {
     fn new(id: Id) -> SessionHandle<Self>;
     async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()>;
+    async fn remove_peer(&self, id: peer::Id) -> Result<()>;
     fn write_channel(&self) -> WriteStream;
 }
 
@@ -71,6 +72,17 @@ impl Session for LocalSession {
         peers.insert(id, peer);
 
         debug!("LocalSession(id={}) Added Peer(id={})", self.id, id);
+
+        Ok(())
+    }
+
+    async fn remove_peer(&self, id: peer::Id) -> Result<()> {
+        let mut peers = self.peers.lock().await;
+
+        if let Some(peer) = peers.remove(&id) {
+            debug!("LocalSession(id={}) Removed Peer(id={})", self.id, id);
+            peer.close().await;
+        }
 
         Ok(())
     }

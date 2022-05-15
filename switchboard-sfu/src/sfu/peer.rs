@@ -153,7 +153,8 @@ impl Peer {
     }
 
     pub async fn close(&self) {
-        self.publisher.close().await.unwrap();
+        self.publisher.close().await.expect("error closing publisher");
+        self.subscriber.close().await.expect("error closing subscriber");
     }
 
     pub async fn setup_signal_hooks(
@@ -178,10 +179,6 @@ impl Peer {
                 }))
             })))
             .await;
-
-        //@test loopback tracks atm
-        let pub_pc = Arc::downgrade(&self.publisher);
-        let sub_pc = Arc::downgrade(&self.subscriber);
 
         let pub_rtcp_tx = self.pub_rtcp_writer.clone();
         self.publisher
@@ -228,6 +225,7 @@ impl Peer {
             })))
             .await;
 
+        let sub_pc = Arc::downgrade(&self.subscriber);
         self.subscriber
             .on_negotiation_needed(Box::new(enc!( (sig_tx, sub_pc) move || {
                 Box::pin(enc!( (sig_tx, sub_pc) async move {
