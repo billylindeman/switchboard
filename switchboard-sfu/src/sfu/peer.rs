@@ -19,6 +19,7 @@ use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
+use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_remote::TrackRemote;
 
 use crate::sfu::coordinator::Coordinator;
@@ -34,7 +35,6 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 
 pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
-
 
 pub struct Peer {
     pub id: Id,
@@ -112,13 +112,23 @@ impl Peer {
 
     // Adds a MediaTrackSubscriber to this peer's subscriber peer_connection
     pub async fn add_media_track_subscriber(&self, mut subscriber: MediaTrackSubscriber) {
-        subscriber
+        let rtp_sender: Arc<RTCRtpSender> = subscriber
             .add_to_peer_connection(&self.subscriber)
             .await
             .expect("error adding track subscriber to peer_connection");
 
+        let sub_pc = Arc::downgrade(&self.subscriber);
         tokio::spawn(async move {
-            subscriber.event_loop().await;
+            subscriber.rtp_event_loop().await;
+
+            if let Some(sub_pc) = sub_pc.upgrade() {
+                sub_pc
+                    .remove_track(&rtp_sender)
+                    .await
+                    .expect("error removing track from subscriber");
+
+                debug!("Removed track from subscriber");
+            }
         });
     }
 
@@ -153,8 +163,14 @@ impl Peer {
     }
 
     pub async fn close(&self) {
-        self.publisher.close().await.expect("error closing publisher");
-        self.subscriber.close().await.expect("error closing subscriber");
+        self.publisher
+            .close()
+            .await
+            .expect("error closing publisher");
+        self.subscriber
+            .close()
+            .await
+            .expect("error closing subscriber");
     }
 
     pub async fn setup_signal_hooks(
@@ -187,12 +203,12 @@ impl Peer {
                     Box::pin( enc!( (mut session_tx, pub_rtcp_tx) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
-                        let media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
-                        session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
-
                         tokio::spawn(async move {
-                            let mut r = media_track_router.lock().await; 
-                            r.event_loop();
+                            let id = track.id().await;
+                            let (media_track_router, closed) = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
+                            session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
+                            let _ = closed.await;
+                            session_tx.send(SessionEvent::TrackRemoved(id)).await.expect("error sending track removed");
                         });
                     } else {
                         warn!("on track called with no track!");
