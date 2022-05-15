@@ -38,17 +38,17 @@ impl MediaTrackRouter {
         rtp_receiver: Arc<RTCRtpReceiver>,
         rtcp_writer: peer::RtcpWriter,
     ) -> (MediaTrackRouterHandle, oneshot::Receiver<bool>) {
-        let (pkt_tx, pkt_rx) = broadcast::channel(512);
+        let (pkt_tx, _pkt_rx) = broadcast::channel(512);
         let (evt_tx, evt_rx) = mpsc::channel(32);
 
         let media_ssrc = track_remote.ssrc();
+        tokio::spawn(async move {
+            MediaTrackRouter::rtcp_event_loop(media_ssrc, evt_rx, rtcp_writer).await
+        });
 
         let (closed_tx, closed_rx) = oneshot::channel();
         tokio::spawn(enc!((pkt_tx, track_remote) async move {
-            let rtcp = MediaTrackRouter::rtcp_event_loop(media_ssrc, evt_rx, rtcp_writer);
-            let rtp = MediaTrackRouter::rtp_event_loop(track_remote, pkt_tx);
-            tokio::join!(rtcp, rtp);
-
+            MediaTrackRouter::rtp_event_loop(track_remote, pkt_tx).await;
             let _ = closed_tx.send(true);
         }));
 
@@ -90,6 +90,7 @@ impl MediaTrackRouter {
                 }
             }
         }
+        debug!("MediaTrackRouter RTCP Event Loop finished");
     }
 
     // Process RTCP & RTP packets for this track
