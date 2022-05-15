@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_mutex::Mutex;
 use enclose::enc;
 use futures::{Stream, StreamExt};
-use futures_channel::mpsc;
+use futures_channel::{mpsc, oneshot};
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -26,13 +26,9 @@ pub type MediaTrackRouterHandle = Arc<Mutex<MediaTrackRouter>>;
 pub struct MediaTrackRouter {
     pub id: Id,
     track_remote: Arc<TrackRemote>,
-    packet_sender: broadcast::Sender<rtp::packet::Packet>,
 
-    rtcp_writer: Option<peer::RtcpWriter>,
-    event_rx: Option<mpsc::Receiver<MediaTrackSubscriberEvent>>,
     event_tx: mpsc::Sender<MediaTrackSubscriberEvent>,
-
-    _packet_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    packet_sender: broadcast::Sender<rtp::packet::Packet>,
     _rtp_receiver: Arc<RTCRtpReceiver>,
 }
 
@@ -41,21 +37,31 @@ impl MediaTrackRouter {
         track_remote: Arc<TrackRemote>,
         rtp_receiver: Arc<RTCRtpReceiver>,
         rtcp_writer: peer::RtcpWriter,
-    ) -> MediaTrackRouterHandle {
+    ) -> (MediaTrackRouterHandle, oneshot::Receiver<bool>) {
         let (pkt_tx, pkt_rx) = broadcast::channel(512);
         let (evt_tx, evt_rx) = mpsc::channel(32);
 
-        Arc::new(Mutex::new(MediaTrackRouter {
-            id: track_remote.id().await,
-            track_remote: track_remote,
-            _rtp_receiver: rtp_receiver,
-            rtcp_writer: Some(rtcp_writer),
-            event_rx: Some(evt_rx),
-            event_tx: evt_tx,
+        let media_ssrc = track_remote.ssrc();
 
-            packet_sender: pkt_tx,
-            _packet_receiver: pkt_rx,
-        }))
+        let (closed_tx, closed_rx) = oneshot::channel();
+        tokio::spawn(enc!((pkt_tx, track_remote) async move {
+            let rtcp = MediaTrackRouter::rtcp_event_loop(media_ssrc, evt_rx, rtcp_writer);
+            let rtp = MediaTrackRouter::rtp_event_loop(track_remote, pkt_tx);
+            tokio::join!(rtcp, rtp);
+
+            let _ = closed_tx.send(true);
+        }));
+
+        (
+            Arc::new(Mutex::new(MediaTrackRouter {
+                id: track_remote.id().await,
+                track_remote: track_remote,
+                packet_sender: pkt_tx,
+                _rtp_receiver: rtp_receiver,
+                event_tx: evt_tx,
+            })),
+            closed_rx,
+        )
     }
 
     pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
@@ -66,31 +72,31 @@ impl MediaTrackRouter {
             .await
     }
 
-    // Process RTCP & RTP packets for this track
-    pub async fn event_loop(&mut self) {
-        let media_ssrc = self.track_remote.ssrc();
-        let event_rx = self.event_rx.take();
-        let rtcp_writer = self.rtcp_writer.take();
-        tokio::spawn(async move {
-            if let (Some(mut event_rx), Some(mut rtcp_writer)) = (event_rx, rtcp_writer) {
-                while let Some(event) = event_rx.next().await {
-                    match event {
-                        MediaTrackSubscriberEvent::PictureLossIndication => {
-                            trace!("MediaTrackRouter forwarding PLI from MediaTrackSubscriber");
-                            rtcp_writer
-                                .try_send(Box::new(PictureLossIndication {
-                                    sender_ssrc: 0,
-                                    media_ssrc,
-                                }))
-                                .expect("Couldn't forward PLI to MediaTrackRouter");
-                        }
-                    }
+    async fn rtcp_event_loop(
+        media_ssrc: u32,
+        mut event_rx: mpsc::Receiver<MediaTrackSubscriberEvent>,
+        mut rtcp_writer: peer::RtcpWriter,
+    ) {
+        while let Some(event) = event_rx.next().await {
+            match event {
+                MediaTrackSubscriberEvent::PictureLossIndication => {
+                    trace!("MediaTrackRouter forwarding PLI from MediaTrackSubscriber");
+                    rtcp_writer
+                        .try_send(Box::new(PictureLossIndication {
+                            sender_ssrc: 0,
+                            media_ssrc,
+                        }))
+                        .expect("Couldn't forward PLI to MediaTrackRouter");
                 }
             }
-        });
+        }
+    }
 
-        let track = self.track_remote.clone();
-        let packet_sender = self.packet_sender.clone();
+    // Process RTCP & RTP packets for this track
+    pub async fn rtp_event_loop(
+        track: Arc<TrackRemote>,
+        packet_sender: broadcast::Sender<rtp::packet::Packet>,
+    ) {
         debug!(
             "MediaTrackRouter has started, of type {}: {}",
             track.payload_type(),
@@ -190,7 +196,7 @@ impl MediaTrackSubscriber {
         Ok(rtp_sender)
     }
 
-    pub async fn event_loop(&mut self) {
+    pub async fn rtp_event_loop(&mut self) {
         debug!(
             "MediaTrackSubscriber starting track={} stream={}",
             self.track.id(),

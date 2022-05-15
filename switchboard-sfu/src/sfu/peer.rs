@@ -36,7 +36,6 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 
-
 pub struct Peer {
     pub id: Id,
     pub publisher: Arc<RTCPeerConnection>,
@@ -100,7 +99,7 @@ impl Peer {
     pub async fn subscriber_set_answer(&self, answer: RTCSessionDescription) -> Result<()> {
         self.subscriber.set_remote_description(answer).await?;
 
-        if let mut pending_candidates = self.sub_pending_candidates.lock().await  {
+        if let mut pending_candidates = self.sub_pending_candidates.lock().await {
             while let Some(candidate) = (*pending_candidates).pop() {
                 if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
                     error!("error adding ice candidate: {}", err);
@@ -120,10 +119,13 @@ impl Peer {
 
         let sub_pc = Arc::downgrade(&self.subscriber);
         tokio::spawn(async move {
-            subscriber.event_loop().await;
+            subscriber.rtp_event_loop().await;
 
             if let Some(sub_pc) = sub_pc.upgrade() {
-                sub_pc.remove_track(&rtp_sender).await.expect("error removing track from subscriber");
+                sub_pc
+                    .remove_track(&rtp_sender)
+                    .await
+                    .expect("error removing track from subscriber");
 
                 debug!("Removed track from subscriber");
             }
@@ -161,8 +163,14 @@ impl Peer {
     }
 
     pub async fn close(&self) {
-        self.publisher.close().await.expect("error closing publisher");
-        self.subscriber.close().await.expect("error closing subscriber");
+        self.publisher
+            .close()
+            .await
+            .expect("error closing publisher");
+        self.subscriber
+            .close()
+            .await
+            .expect("error closing subscriber");
     }
 
     pub async fn setup_signal_hooks(
@@ -195,13 +203,13 @@ impl Peer {
                     Box::pin( enc!( (mut session_tx, pub_rtcp_tx) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
-                        let media_track_router = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
-                        session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
-
                         tokio::spawn(async move {
-                            let mut r = media_track_router.lock().await; 
-                            r.event_loop().await;
-                            //session_tx.send(SessionEvent::TrackRemoved(r.id.clone())).await.expect("error sending track removed event");
+                            let id = track.id().await;
+                            let (media_track_router, closed) = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
+                            session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
+                            let _ = closed.await;
+                            debug!("TRACK HAS FINISHED");
+                            session_tx.send(SessionEvent::TrackRemoved(id)).await.expect("error sending track removed");
                         });
                     } else {
                         warn!("on track called with no track!");
