@@ -19,6 +19,7 @@ use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
+use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_remote::TrackRemote;
 
 use crate::sfu::coordinator::Coordinator;
@@ -99,7 +100,7 @@ impl Peer {
     pub async fn subscriber_set_answer(&self, answer: RTCSessionDescription) -> Result<()> {
         self.subscriber.set_remote_description(answer).await?;
 
-        if let mut pending_candidates = self.sub_pending_candidates.lock().await {
+        if let mut pending_candidates = self.sub_pending_candidates.lock().await  {
             while let Some(candidate) = (*pending_candidates).pop() {
                 if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
                     error!("error adding ice candidate: {}", err);
@@ -112,13 +113,20 @@ impl Peer {
 
     // Adds a MediaTrackSubscriber to this peer's subscriber peer_connection
     pub async fn add_media_track_subscriber(&self, mut subscriber: MediaTrackSubscriber) {
-        subscriber
+        let rtp_sender: Arc<RTCRtpSender> = subscriber
             .add_to_peer_connection(&self.subscriber)
             .await
             .expect("error adding track subscriber to peer_connection");
 
+        let sub_pc = Arc::downgrade(&self.subscriber);
         tokio::spawn(async move {
             subscriber.event_loop().await;
+
+            if let Some(sub_pc) = sub_pc.upgrade() {
+                sub_pc.remove_track(&rtp_sender).await.expect("error removing track from subscriber");
+
+                debug!("Removed track from subscriber");
+            }
         });
     }
 
@@ -192,7 +200,8 @@ impl Peer {
 
                         tokio::spawn(async move {
                             let mut r = media_track_router.lock().await; 
-                            r.event_loop();
+                            r.event_loop().await;
+                            //session_tx.send(SessionEvent::TrackRemoved(r.id.clone())).await.expect("error sending track removed event");
                         });
                     } else {
                         warn!("on track called with no track!");

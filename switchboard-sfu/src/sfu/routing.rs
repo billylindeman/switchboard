@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_mutex::Mutex;
+use enclose::enc;
 use futures::{Stream, StreamExt};
 use futures_channel::mpsc;
 use log::*;
@@ -66,51 +67,7 @@ impl MediaTrackRouter {
     }
 
     // Process RTCP & RTP packets for this track
-    pub fn event_loop(&mut self) {
-        let track = self.track_remote.clone();
-        let packet_sender = self.packet_sender.clone();
-        tokio::spawn(async move {
-            debug!(
-                "MediaTrackRouter has started, of type {}: {}",
-                track.payload_type(),
-                track.codec().await.capability.mime_type
-            );
-
-            let mut last_timestamp = 0;
-            while let Ok((mut rtp, _)) = track.read_rtp().await {
-                // Change the timestamp to only be the delta
-                let old_timestamp = rtp.header.timestamp;
-                if last_timestamp == 0 {
-                    rtp.header.timestamp = 0
-                } else {
-                    rtp.header.timestamp -= last_timestamp;
-                }
-                last_timestamp = old_timestamp;
-
-                trace!(
-                    "MediaTrackRouter received RTP ssrc={} seq={} timestamp={}",
-                    rtp.header.ssrc,
-                    rtp.header.sequence_number,
-                    rtp.header.timestamp
-                );
-
-                // Send packet to broadcast channel
-                if packet_sender.receiver_count() > 0 {
-                    if let Err(e) = packet_sender.send(rtp) {
-                        error!("MediaTrackRouter failed to broadcast RTP: {}", e);
-                    }
-                } else {
-                    trace!("MediaTrackRouter has no subscribers");
-                }
-            }
-
-            debug!(
-                "MediaTrackRouter has ended, of type {}: {}",
-                track.payload_type(),
-                track.codec().await.capability.mime_type
-            );
-        });
-
+    pub async fn event_loop(&mut self) {
         let media_ssrc = self.track_remote.ssrc();
         let event_rx = self.event_rx.take();
         let rtcp_writer = self.rtcp_writer.take();
@@ -131,6 +88,48 @@ impl MediaTrackRouter {
                 }
             }
         });
+
+        let track = self.track_remote.clone();
+        let packet_sender = self.packet_sender.clone();
+        debug!(
+            "MediaTrackRouter has started, of type {}: {}",
+            track.payload_type(),
+            track.codec().await.capability.mime_type
+        );
+
+        let mut last_timestamp = 0;
+        while let Ok((mut rtp, _)) = track.read_rtp().await {
+            // Change the timestamp to only be the delta
+            let old_timestamp = rtp.header.timestamp;
+            if last_timestamp == 0 {
+                rtp.header.timestamp = 0
+            } else {
+                rtp.header.timestamp -= last_timestamp;
+            }
+            last_timestamp = old_timestamp;
+
+            trace!(
+                "MediaTrackRouter received RTP ssrc={} seq={} timestamp={}",
+                rtp.header.ssrc,
+                rtp.header.sequence_number,
+                rtp.header.timestamp
+            );
+
+            // Send packet to broadcast channel
+            if packet_sender.receiver_count() > 0 {
+                if let Err(e) = packet_sender.send(rtp) {
+                    error!("MediaTrackRouter failed to broadcast RTP: {}", e);
+                }
+            } else {
+                trace!("MediaTrackRouter has no subscribers");
+            }
+        }
+
+        debug!(
+            "MediaTrackRouter has ended, of type {}: {}",
+            track.payload_type(),
+            track.codec().await.capability.mime_type
+        );
     }
 }
 
@@ -168,7 +167,10 @@ impl MediaTrackSubscriber {
         }
     }
 
-    pub async fn add_to_peer_connection(&self, peer_connection: &RTCPeerConnection) -> Result<()> {
+    pub async fn add_to_peer_connection(
+        &self,
+        peer_connection: &RTCPeerConnection,
+    ) -> Result<Arc<RTCRtpSender>> {
         debug!("MediaTrackSubscriber added to peer_connection");
 
         // Add this newly created track to the PeerConnection
@@ -182,10 +184,10 @@ impl MediaTrackSubscriber {
         // Before these packets are returned they are processed by interceptors. For things
         // like NACK this needs to be called
         tokio::spawn(
-            async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender, evt_sender).await },
+            enc!((rtp_sender) async move { MediaTrackSubscriber::rtcp_event_loop(rtp_sender, evt_sender).await }),
         );
 
-        Ok(())
+        Ok(rtp_sender)
     }
 
     pub async fn event_loop(&mut self) {

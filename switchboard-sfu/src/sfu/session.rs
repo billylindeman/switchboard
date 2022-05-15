@@ -29,6 +29,7 @@ pub trait Session {
 
 pub enum SessionEvent {
     TrackPublished(MediaTrackRouterHandle),
+    TrackRemoved(String),
 }
 
 pub struct LocalSession {
@@ -93,6 +94,7 @@ impl LocalSession {
         while let Some(evt) = rx.next().await {
             match evt {
                 SessionEvent::TrackPublished(router) => session.add_router(router).await,
+                SessionEvent::TrackRemoved(router_id) => session.remove_router(router_id).await,
             }
         }
     }
@@ -103,6 +105,11 @@ impl LocalSession {
         let id = { router.lock().await.id.clone() };
         let mut routers = self.routers.lock().await;
         routers.insert(id, router);
+    }
+
+    async fn remove_router(&self, router_id: String) {
+        let mut routers = self.routers.lock().await;
+        let _router = routers.remove(&router_id);
     }
 
     async fn subscribe_all_peers_to_router(&self, router: &MediaTrackRouterHandle) {
