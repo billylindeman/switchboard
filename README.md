@@ -18,7 +18,7 @@ Single node operation that can host multiple call sessions & routing between pee
 ### Phase 1
 Multi-node clustered operation with single node routing
 
-This will likely start with redis/etcd coordination (comparable to how ion-cluster works).  Cluster will support many call servers but any single session will only span a single node.
+This will likely start with redis/etcd coordination (comparable to how [ion-cluster](https://github.com/cryptagon/ion-cluster) works).  Cluster will support many call servers but any single session will only span a single node.
 
 ### Phase 2
 Multi-node sessions that can span multiple call servers & support different distribution topoligies (ie fan out trees for broadcast).
