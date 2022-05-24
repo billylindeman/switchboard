@@ -4,7 +4,7 @@ Switchboard is a scalable webrtc server built in rust!
 The overall architecture is as follows:
 
 - JSONRPC/Websocket signaling protocol
-- webrtc.rs based routing engine
+- [webrtc.rs](https://github.com/webrtc-rs/webrtc) based routing engine
 - pluggable coordination for multi-node operation
 - Deep integration with gstreamer for multimedia processing (planned)
 
