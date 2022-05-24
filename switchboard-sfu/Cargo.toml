@@ -13,7 +13,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3.3", features = ["env-filter"] }
 tokio = { version = "1.8", features = ["full"] }
 tokio-stream = { version = "0.1.8", features = ["sync"] }
-webrtc = "0.4.0"
 tokio-tungstenite = "0.17.1"
 log = "0.4.17"
 futures-util = "0.3.21"
@@ -26,6 +25,9 @@ enclose = "1.1.8"
 async-trait = "0.1.53"
 uuid = { version = "1.0.0", features = ["v4"]}
 
+
+#webrtc = "0.4.0"
+webrtc = { path = "../../webrtc" }
 
 [[bin]]
 name = "switchboard"

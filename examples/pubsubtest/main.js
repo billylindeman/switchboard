@@ -3,7 +3,7 @@ const remotesDiv = document.getElementById("remotes");
 
 const params = new URLSearchParams(window.location.search)
 
-const serverUrl = "ws://localhost:7000/session/test";
+const serverUrl = `ws://${(window.location.host) || "localhost"}:7000/session/test`;
 
 /* eslint-env browser */
 const joinBtns = document.getElementById("start-btns");
@@ -14,6 +14,7 @@ const config = {
       urls: "stun:stun.l.google.com:19302",
     },
   ],
+  codec: 'VP9',
 };
 
 const signalLocal = new Signal.IonSFUJSONRPCSignal(serverUrl);
@@ -60,9 +61,9 @@ function enableAudio() {
 let localStream;
 const start = () => {
   IonSDK.LocalStream.getUserMedia({
-    resolution: "vga",
+    resolution: "hd",
     audio: true,
-    codec: params.has("codec") ? params.get("codec") : "vp8",
+    codec: params.has("codec") ? params.get("codec") : "AV1",
   })
     .then((media) => {
       localStream = media;

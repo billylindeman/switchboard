@@ -23,6 +23,7 @@ use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_remote::TrackRemote;
 
 use crate::sfu::coordinator::Coordinator;
+use crate::sfu::mediaengine;
 use crate::sfu::routing::*;
 use crate::sfu::session::{self, SessionEvent};
 use crate::signal::signal;
@@ -265,7 +266,7 @@ impl Peer {
 async fn build_peer_connection() -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
-    m.register_default_codecs()?;
+    mediaengine::register_default_codecs(&mut m)?;
 
     // Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
     // This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`

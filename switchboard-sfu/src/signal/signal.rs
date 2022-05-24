@@ -42,8 +42,8 @@ impl From<RTCIceCandidateInit> for TrickleCandidate {
     fn from(t: RTCIceCandidateInit) -> TrickleCandidate {
         TrickleCandidate {
             candidate: t.candidate,
-            sdp_mid: Some(t.sdp_mid),
-            sdp_mline_index: t.sdp_mline_index as u32,
+            sdp_mid: t.sdp_mid,
+            sdp_mline_index: t.sdp_mline_index.unwrap() as u32,
         }
     }
 }
@@ -52,12 +52,9 @@ impl From<TrickleCandidate> for RTCIceCandidateInit {
     fn from(t: TrickleCandidate) -> RTCIceCandidateInit {
         RTCIceCandidateInit {
             candidate: t.candidate,
-            sdp_mid: match t.sdp_mid {
-                Some(mid) => mid,
-                None => "".to_owned(),
-            },
-            sdp_mline_index: t.sdp_mline_index as u16,
-            username_fragment: "".to_owned(),
+            sdp_mid: t.sdp_mid,
+            sdp_mline_index: Some(t.sdp_mline_index as u16),
+            username_fragment: None,
         }
     }
 }
