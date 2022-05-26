@@ -10,7 +10,7 @@ use switchboard_sfu::p2p;
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
 
-    let topic = floodsub::Topic::new("chat-123");
+    let topic = floodsub::Topic::new("switchboard-announce");
 
     let mut swarm = p2p::build_swarm(topic.clone()).await?;
 

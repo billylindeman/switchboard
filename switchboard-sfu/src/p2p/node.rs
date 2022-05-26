@@ -24,12 +24,12 @@ use tokio::io::{self, AsyncBufReadExt};
 // the events of each behaviour.
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = true)]
-pub struct MyBehaviour {
+pub struct SwitchboardNodeBehavior {
     pub floodsub: Floodsub,
     pub mdns: Mdns,
 }
 
-impl NetworkBehaviourEventProcess<FloodsubEvent> for MyBehaviour {
+impl NetworkBehaviourEventProcess<FloodsubEvent> for SwitchboardNodeBehavior {
     // Called when `floodsub` produces an event.
     fn inject_event(&mut self, message: FloodsubEvent) {
         if let FloodsubEvent::Message(message) = message {
@@ -42,7 +42,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for MyBehaviour {
     }
 }
 
-impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
+impl NetworkBehaviourEventProcess<MdnsEvent> for SwitchboardNodeBehavior {
     // Called when `mdns` produces an event.
     fn inject_event(&mut self, event: MdnsEvent) {
         match event {
@@ -65,7 +65,7 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 /// The `tokio::main` attribute sets up a tokio runtime.
 pub async fn build_swarm(
     floodsub_topic: floodsub::Topic,
-) -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
+) -> Result<Swarm<SwitchboardNodeBehavior>, Box<dyn Error>> {
     // Create a random PeerId
     let id_keys = identity::Keypair::generate_ed25519();
     let peer_id = PeerId::from(id_keys.public());
@@ -92,7 +92,7 @@ pub async fn build_swarm(
     // Create a Swarm to manage peers and events.
     let mut swarm = {
         let mdns = Mdns::new(Default::default()).await?;
-        let mut behaviour = MyBehaviour {
+        let mut behaviour = SwitchboardNodeBehavior {
             floodsub: Floodsub::new(peer_id.clone()),
             mdns,
         };
