@@ -3,7 +3,7 @@ use std::error::Error;
 use tokio::io::{self, AsyncBufReadExt};
 
 use libp2p::{floodsub, swarm::SwarmEvent};
-use switchboard::p2p::{self};
+use switchboard_sfu::p2p;
 
 /// The `tokio::main` attribute sets up a tokio runtime.
 #[tokio::main]

@@ -2,5 +2,4 @@
 
 members = [
     "switchboard-sfu",
-    "switchboard-p2p",
 ]

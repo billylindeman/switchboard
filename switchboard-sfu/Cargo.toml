@@ -3,11 +3,15 @@ name = "switchboard-sfu"
 version = "0.1.0"
 edition = "2021"
 
+
+default-run = "switchboard"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = ["simulcast", "audiolevel"]
 simulcast = []
 audiolevel = []
+p2p = ["libp2p"]
 
 [dependencies]
 anyhow = "1"
@@ -29,12 +33,20 @@ enclose = "1.1.8"
 async-trait = "0.1.53"
 uuid = { version = "1.0.0", features = ["v4"]}
 
-
 #webrtc = "0.4.0"
 webrtc = { path = "../../webrtc" }
+
+#libp2p experiment
+libp2p = { version = "0.40.0", features = ["tcp-tokio"], optional = true}
 
 [[bin]]
 name = "switchboard"
 path = "bin/main.rs"
+
+[[bin]]
+name = "p2p"
+path = "bin/p2p.rs"
+
+
 
 
