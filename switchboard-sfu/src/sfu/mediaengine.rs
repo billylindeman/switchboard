@@ -7,6 +7,11 @@ use webrtc::rtp_transceiver::rtp_codec::{
 use webrtc::api::media_engine::*;
 use webrtc::rtp_transceiver::{PayloadType, RTCPFeedback};
 
+const EXT_URI_SDES_MID: &str = "urn:ietf:params:rtp-hdrext:sdes:mid";
+const EXT_URI_SDES_RTP_SID: &str = "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
+const EXT_URI_SDES_REP_SID: &str = "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id";
+const EXT_URI_AUDIO_LEVEL: &str = "urn:ietf:params:rtp-hdrext:ssrc-audio-level";
+
 pub fn register_default_codecs(media_engine: &mut MediaEngine) -> Result<()> {
     // Default Audio Codecs
     for codec in vec![
@@ -313,5 +318,37 @@ pub fn register_default_codecs(media_engine: &mut MediaEngine) -> Result<()> {
         media_engine.register_codec(codec, RTPCodecType::Video)?;
     }
 
+    Ok(())
+}
+
+pub fn register_rtp_extension_simulcast(m: &mut MediaEngine) -> Result<()> {
+    for extension in vec![EXT_URI_SDES_MID, EXT_URI_SDES_RTP_SID, EXT_URI_SDES_REP_SID] {
+        m.register_header_extension(
+            RTCRtpHeaderExtensionCapability {
+                uri: extension.to_owned(),
+            },
+            RTPCodecType::Video,
+            vec![],
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn register_rtp_extension_audiolevel(m: &mut MediaEngine) -> Result<()> {
+    for extension in vec![
+        EXT_URI_SDES_MID,
+        EXT_URI_SDES_RTP_SID,
+        EXT_URI_SDES_REP_SID,
+        EXT_URI_AUDIO_LEVEL,
+    ] {
+        m.register_header_extension(
+            RTCRtpHeaderExtensionCapability {
+                uri: extension.to_owned(),
+            },
+            RTPCodecType::Audio,
+            vec![],
+        )?;
+    }
     Ok(())
 }

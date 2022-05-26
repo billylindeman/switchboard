@@ -14,7 +14,7 @@ const config = {
       urls: "stun:stun.l.google.com:19302",
     },
   ],
-  codec: 'VP9',
+  codec: 'AV1',
 };
 
 const signalLocal = new Signal.IonSFUJSONRPCSignal(serverUrl);

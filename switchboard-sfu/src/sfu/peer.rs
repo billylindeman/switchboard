@@ -268,6 +268,12 @@ async fn build_peer_connection() -> Result<(Arc<RTCPeerConnection>, RtcpWriter)>
     let mut m = MediaEngine::default();
     mediaengine::register_default_codecs(&mut m)?;
 
+    #[cfg(feature = "simulcast")]
+    mediaengine::register_rtp_extension_simulcast(&mut m)?;
+
+    #[cfg(feature = "audiolevel")]
+    mediaengine::register_rtp_extension_audiolevel(&mut m)?;
+
     // Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
     // This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
     // this is enabled by default. If you are manually managing You MUST create a InterceptorRegistry
