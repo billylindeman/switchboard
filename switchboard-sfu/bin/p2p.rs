@@ -1,18 +1,31 @@
 use futures::StreamExt;
+use std::env;
 use std::error::Error;
 use tokio::io::{self, AsyncBufReadExt};
 
 use libp2p::{floodsub, swarm::SwarmEvent};
-use switchboard_sfu::p2p;
 
-/// The `tokio::main` attribute sets up a tokio runtime.
+use switchboard_sfu::p2p;
+use switchboard_sfu::signal;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    if env::var_os("RUST_LOG").is_none() {
+        env::set_var("RUST_LOG", "switchboard=info");
+    }
     pretty_env_logger::init();
+
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:7000".to_string());
+
+    tokio::spawn(async move {
+        signal::run_server(&addr).await;
+    });
 
     let topic = floodsub::Topic::new("switchboard-announce");
 
-    let mut swarm = p2p::build_swarm(topic.clone()).await?;
+    let mut swarm = p2p::node::build_swarm(topic.clone()).await?;
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();

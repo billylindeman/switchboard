@@ -62,7 +62,6 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for SwitchboardNodeBehavior {
     }
 }
 
-/// The `tokio::main` attribute sets up a tokio runtime.
 pub async fn build_swarm(
     floodsub_topic: floodsub::Topic,
 ) -> Result<Swarm<SwitchboardNodeBehavior>, Box<dyn Error>> {
@@ -115,27 +114,5 @@ pub async fn build_swarm(
         println!("Dialed {:?}", to_dial)
     }
 
-    // Read full lines from stdin
-    //let mut stdin = io::BufReader::new(io::stdin()).lines();
-
-    // Listen on all interfaces and whatever port the OS assigns
-    //swarm.listen_on("/ip4/0.0.0.0/tcp/0/ws".parse()?)?;
-
-    // Kick it off
-    //loop {
-    //    tokio::select! {
-    //        line = stdin.next_line() => {
-    //            let line = line?.expect("stdin closed");
-    //            swarm.behaviour_mut().floodsub.publish(floodsub_topic.clone(), line.as_bytes());
-    //        }
-    //        event = swarm.select_next_some() => {
-    //            if let SwarmEvent::NewListenAddr { address, .. } = event {
-    //                println!("Listening on {:?}", address);
-    //            }
-    //        }
-    //    }
-    //
-    //}
-    //
     Ok(swarm)
 }

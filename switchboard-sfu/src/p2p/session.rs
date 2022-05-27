@@ -13,9 +13,12 @@ use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;
 use crate::sfu::session;
 
+/// CascadeSession represents a node in the mesh for a given session id
+/// All tracks from our clients are trunked via uplinks
+/// and all tracks from the uplinks are trunked to the downlinks.
 pub struct CascadeSession {
     id: session::Id,
-    uplink: Option<Arc<peer::Peer>>,
+    uplinks: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,
     downlinks: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,
     routers: Arc<Mutex<HashMap<String, MediaTrackRouterHandle>>>,
     tx: session::WriteStream,
@@ -28,7 +31,7 @@ impl session::Session for CascadeSession {
 
         let handle = Arc::new(CascadeSession {
             id: id,
-            uplink: None,
+            uplinks: Arc::new(Mutex::new(HashMap::new())),
             downlinks: Arc::new(Mutex::new(HashMap::new())),
             routers: Arc::new(Mutex::new(HashMap::new())),
             tx: tx,
@@ -45,7 +48,7 @@ impl session::Session for CascadeSession {
     }
 
     async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()> {
-        let mut peers = self.peers.lock().await;
+        let mut peers = self.downlinks.lock().await;
 
         if peers.contains_key(&id) {
             error!("Peer id={} already exists", id);
@@ -61,7 +64,7 @@ impl session::Session for CascadeSession {
     }
 
     async fn remove_peer(&self, id: peer::Id) -> Result<()> {
-        let mut peers = self.peers.lock().await;
+        let mut peers = self.downlinks.lock().await;
 
         if let Some(peer) = peers.remove(&id) {
             debug!("LocalSession(id={}) Removed Peer(id={})", self.id, id);
@@ -72,15 +75,24 @@ impl session::Session for CascadeSession {
     }
 }
 
-impl LocalSession {
-    async fn event_loop(session: SessionHandle<Self>, mut rx: mpsc::Receiver<SessionEvent>) {
+impl CascadeSession {
+    async fn event_loop(
+        session: session::SessionHandle<Self>,
+        mut rx: mpsc::Receiver<session::SessionEvent>,
+    ) {
         while let Some(evt) = rx.next().await {
             match evt {
-                SessionEvent::TrackPublished(router) => session.add_router(router).await,
-                SessionEvent::TrackRemoved(router_id) => session.remove_router(router_id).await,
+                session::SessionEvent::TrackPublished(router) => session.add_router(router).await,
+                session::SessionEvent::TrackRemoved(router_id) => {
+                    session.remove_router(router_id).await
+                }
             }
         }
     }
+
+    /// Adds a peer that is another SFU signaled through the service mesh
+    async fn add_uplink(&self, id: peer::Id, peer: Arc<peer::Peer>) {}
+    async fn remove_uplink(&self, id: peer::Id) {}
 
     async fn add_router(&self, router: MediaTrackRouterHandle) {
         self.subscribe_all_peers_to_router(&router).await;
@@ -96,7 +108,7 @@ impl LocalSession {
     }
 
     async fn subscribe_all_peers_to_router(&self, router: &MediaTrackRouterHandle) {
-        let mut peers = self.peers.lock().await;
+        let mut peers = self.downlinks.lock().await;
 
         for (_, peer) in &mut *peers {
             let subscriber = { router.lock().await.add_subscriber().await };
