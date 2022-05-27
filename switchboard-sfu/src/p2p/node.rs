@@ -15,8 +15,20 @@ use libp2p::{
     PeerId,
     Transport,
 };
+use std::collections::HashMap;
 use std::error::Error;
 use tokio::io::{self, AsyncBufReadExt};
+
+use crate::sfu::coordinator;
+use crate::sfu::session;
+use crate::signal::signal;
+
+use crate::p2p::session::CascadeSession;
+
+enum NodeBroadcast {
+    Announce(session::Id, PeerId),
+    UplinkSignal(session::Id, PeerId, session::Id, signal::Event),
+}
 
 // We create a custom network behaviour that combines floodsub and mDNS.
 // The derive generates a delegating `NetworkBehaviour` impl which in turn
