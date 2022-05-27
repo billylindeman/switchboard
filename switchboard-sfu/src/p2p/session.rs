@@ -91,7 +91,22 @@ impl CascadeSession {
     }
 
     /// Adds a peer that is another SFU signaled through the service mesh
-    async fn add_uplink(&self, id: peer::Id, peer: Arc<peer::Peer>) {}
+    async fn add_uplink(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()> {
+        let mut trunks = self.uplinks.lock().await;
+
+        if trunks.contains_key(&id) {
+            error!("Trunk id={} already exists", id);
+            return Err(format_err!("Trunk id={} already exists", id));
+        }
+
+        self.subscribe_peer_to_all_routers(&peer).await;
+        trunks.insert(id, peer);
+
+        debug!("LocalSession(id={}) Added Trunk Uplink(id={})", self.id, id);
+
+        Ok(())
+    }
+
     async fn remove_uplink(&self, id: peer::Id) {}
 
     async fn add_router(&self, router: MediaTrackRouterHandle) {
