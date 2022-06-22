@@ -10,6 +10,7 @@ use crate::sfu::peer;
 use crate::sfu::session;
 use crate::sfu::session::{LocalSession, Session};
 
+/// Spawns a tokio tcp server
 pub async fn run_server(addr: &str) {
     let coordinator: Arc<LocalCoordinator<LocalSession>> = LocalCoordinator::new();
 
@@ -54,6 +55,7 @@ where
     info!("client disconnected");
 }
 
+/// Event loop for each signal connection
 pub async fn event_loop<C, S>(
     coordinator: Arc<C>,
     mut rx: signal::ReadStream,

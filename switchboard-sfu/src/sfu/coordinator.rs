@@ -6,11 +6,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[async_trait]
+/// Coordinator is responsible for managing sessions
 pub trait Coordinator<S: session::Session> {
     fn new() -> Arc<Self>;
     async fn get_or_create_session(&self, id: session::Id) -> session::SessionHandle<S>;
 }
 
+/// LocalCoordinator is a simple coordinator impl that just holds sessions on a single node
 pub struct LocalCoordinator<S: session::Session> {
     pub sessions: Arc<Mutex<HashMap<session::Id, session::SessionHandle<S>>>>,
 }

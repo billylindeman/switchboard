@@ -24,6 +24,8 @@ pub(super) enum MediaTrackSubscriberEvent {
     PictureLossIndication,
 }
 
+/// MediaTrackSubscriber is created from a MediaTrackRouter and contains a new TrackLocalStaticRTP
+/// that can be added to another Peer's subscriber RTCPeerConnection)
 pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
     pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,

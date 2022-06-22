@@ -24,6 +24,8 @@ use crate::sfu::peer;
 pub type Id = String;
 pub type MediaTrackRouterHandle = Arc<Mutex<MediaTrackRouter>>;
 
+/// MediaTrackRouter receives RTP from a TrackRemote and can generate MediaTrackSubscribers to
+/// write the track to multiple other peer connections
 pub struct MediaTrackRouter {
     pub id: Id,
     track_remote: Arc<TrackRemote>,

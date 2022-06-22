@@ -70,6 +70,7 @@ pub enum Event {
 pub type ReadStream = mpsc::UnboundedReceiver<Result<Event>>;
 pub type WriteStream = mpsc::UnboundedSender<Result<Event>>;
 
+/// Process json::Event streams into signal::Event streams
 pub async fn handle_messages(
     mut rpc_read: jsonrpc::ReadStream,
     rpc_write: jsonrpc::WriteStream,

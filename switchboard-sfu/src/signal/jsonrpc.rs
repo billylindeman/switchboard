@@ -46,6 +46,7 @@ pub struct Notification {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
+/// JsonRPC Event
 pub enum Event {
     Request(Request),
     Response(Response),
@@ -55,6 +56,8 @@ pub enum Event {
 pub type ReadStream = mpsc::UnboundedReceiver<anyhow::Result<Event>>;
 pub type WriteStream = mpsc::UnboundedSender<anyhow::Result<Event>>;
 
+/// This function processes the websocket stream into
+/// a writer and reader for jsonrpc::Event's
 pub async fn handle_messages(
     stream: WebSocketStream<tokio::net::TcpStream>,
 ) -> (ReadStream, WriteStream) {

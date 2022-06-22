@@ -37,6 +37,8 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 
+/// Peer represents a WebRTC connection and it's tracks
+/// We hold two publisher, subscriber
 pub struct Peer {
     pub id: Id,
     pub publisher: Arc<RTCPeerConnection>,
