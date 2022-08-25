@@ -14,7 +14,6 @@ const config = {
       urls: "stun:stun.l.google.com:19302",
     },
   ],
-  codec: 'AV1',
 };
 
 const signalLocal = new Signal.IonSFUJSONRPCSignal(serverUrl);
@@ -63,7 +62,7 @@ const start = () => {
   IonSDK.LocalStream.getUserMedia({
     resolution: "hd",
     audio: true,
-    codec: params.has("codec") ? params.get("codec") : "AV1",
+    codec: params.has("codec") ? params.get("codec") : "VP8",
   })
     .then((media) => {
       localStream = media;
