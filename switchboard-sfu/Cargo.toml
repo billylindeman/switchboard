@@ -2,6 +2,7 @@
 name = "switchboard-sfu"
 version = "0.1.0"
 edition = "2021"
+authors = ["Billy Lindeman <billylindeman@gmail.com>"]
 
 
 default-run = "switchboard"
