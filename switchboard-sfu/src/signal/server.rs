@@ -74,7 +74,7 @@ pub async fn event_loop<C, S>(
 
                 let session = coordinator.get_or_create_session(join.sid).await;
 
-                let p = peer::Peer::new(tx.clone(), session.write_channel())
+                let p = peer::Peer::new(tx.clone(), session.write_channel(), None)
                     .await
                     .expect("Error creating peer");
 

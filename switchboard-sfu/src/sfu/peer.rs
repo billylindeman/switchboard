@@ -6,6 +6,7 @@ use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
 use uuid::Uuid;
+use webrtc::api::setting_engine::SettingEngine;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
@@ -54,9 +55,12 @@ impl Peer {
     pub async fn new(
         signal_tx: signal::WriteStream,
         session_tx: mpsc::Sender<SessionEvent>,
+        settings: Option<SettingEngine>,
     ) -> Result<Arc<Peer>> {
-        let (publisher, pub_rtcp_writer) = build_peer_connection().await?;
-        let (subscriber, sub_rtcp_writer) = build_peer_connection().await?;
+        let settings = settings.or(Some(SettingEngine::default())).unwrap();
+
+        let (publisher, pub_rtcp_writer) = build_peer_connection(settings.clone()).await?;
+        let (subscriber, sub_rtcp_writer) = build_peer_connection(settings.clone()).await?;
 
         let mut peer = Peer {
             id: Uuid::new_v4(),
@@ -265,7 +269,7 @@ impl Peer {
     }
 }
 
-async fn build_peer_connection() -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
+async fn build_peer_connection(s: SettingEngine) -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
     mediaengine::register_default_codecs(&mut m)?;
@@ -289,6 +293,7 @@ async fn build_peer_connection() -> Result<(Arc<RTCPeerConnection>, RtcpWriter)>
     let api = APIBuilder::new()
         .with_media_engine(m)
         .with_interceptor_registry(registry)
+        .with_setting_engine(s)
         .build();
 
     // Prepare the configuration
