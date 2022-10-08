@@ -1,6 +1,8 @@
 # switchboard
 Switchboard is a scalable webrtc server built in rust!
 
+![](https://raw.githubusercontent.com/billylindeman/switchboard/master/docs/src/img/SwitchboardArchitecture.png)
+
 The overall architecture is as follows:
 
 - JSONRPC/Websocket signaling protocol
