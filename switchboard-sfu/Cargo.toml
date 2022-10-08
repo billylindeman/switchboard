@@ -31,7 +31,7 @@ async-mutex = "1.4.0"
 futures-channel = "0.3.21"
 enclose = "1.1.8"
 async-trait = "0.1.53"
-uuid = { version = "1.0.0", features = ["v4"]}
+uuid = { version = "1.0.0", features = ["v4", "serde"]}
 
 webrtc = "0.5.1"
 

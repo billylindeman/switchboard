@@ -134,6 +134,16 @@ pub async fn event_loop<C, S>(
                     error!("peer has not joined session yet");
                 }
             },
+            signal::Event::Presence(presence) => match &peer {
+                Some(peer) => {
+                    if let Some(ref mut session) = joined_session.as_mut() {
+                        session.presence_set(peer.id, presence.meta).await;
+                    }
+                }
+                None => {
+                    error!("peer has not joined session yet");
+                }
+            },
             _ => {}
         }
     }

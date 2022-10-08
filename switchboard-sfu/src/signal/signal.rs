@@ -59,12 +59,19 @@ impl From<TrickleCandidate> for RTCIceCandidateInit {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Presence {
+    pub revision: u64,
+    pub meta: serde_json::Value,
+}
+
 pub enum Event {
     JoinRequest(oneshot::Sender<JoinResponse>, JoinMsg),
     PublisherOffer(oneshot::Sender<RTCSessionDescription>, NegotiateMsg),
     SubscriberOffer(RTCSessionDescription),
     SubscriberAnswer(NegotiateMsg),
     TrickleIce(TrickleNotification),
+    Presence(Presence),
 }
 
 pub type ReadStream = mpsc::UnboundedReceiver<Result<Event>>;
@@ -126,6 +133,12 @@ pub async fn handle_messages(
 
                         sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, o))).expect("error forwarding signal message");
                     },
+                    "presence_set" => {
+                        let p: Presence =
+                            serde_json::from_value(Value::Object(r.params)).expect("error parsing");
+                        sig_read_tx.unbounded_send(Ok(Event::Presence(p))).expect("error forwarding signal message");
+                    }
+
                     _ => {}
                 },
                 jsonrpc::Event::Notification(n) => match n.method.as_str() {
@@ -140,8 +153,6 @@ pub async fn handle_messages(
                             serde_json::from_value(Value::Object(n.params)).expect("error parsing");
                         sig_read_tx.unbounded_send(Ok(Event::SubscriberAnswer(n))).expect("error forwarding signal message");
                     }
-
-
                     _ => {}
                 },
                 _ => {}
@@ -165,8 +176,13 @@ pub async fn handle_messages(
                         params: serde_json::from_value(serde_json::to_value(offer).unwrap()).unwrap(),
                     };
                     rpc_write.unbounded_send(Ok(jsonrpc::Event::Notification(n))).expect("error sending notification");
-
-
+                }
+                Event::Presence(presence) => {
+                    let n = jsonrpc::Notification {
+                        method: "presence".to_owned(),
+                        params: serde_json::from_value(serde_json::to_value(presence).unwrap()).unwrap(),
+                    };
+                    rpc_write.unbounded_send(Ok(jsonrpc::Event::Notification(n))).expect("error sending notification");
                 }
                 _ => {}
             }

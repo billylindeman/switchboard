@@ -50,6 +50,8 @@ pub struct Peer {
     pub sub_rtcp_writer: RtcpWriter,
 
     pub sub_pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
+
+    pub signal_tx: signal::WriteStream,
 }
 
 impl Peer {
@@ -70,6 +72,7 @@ impl Peer {
             subscriber,
             sub_rtcp_writer,
             sub_pending_candidates: Arc::new(Mutex::new(vec![])),
+            signal_tx: signal_tx.clone(),
         };
 
         peer.setup_signal_hooks(signal_tx, session_tx).await;
