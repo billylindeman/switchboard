@@ -146,6 +146,8 @@ pub async fn event_loop<C, S>(
                 .remove_peer(peer.id)
                 .await
                 .expect("error removing peer");
+
+            coordinator.cleanup_session(session.id()).await;
         }
     }
 }
