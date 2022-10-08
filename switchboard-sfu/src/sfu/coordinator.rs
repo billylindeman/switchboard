@@ -10,6 +10,7 @@ use std::sync::Arc;
 pub trait Coordinator<S: session::Session> {
     fn new() -> Arc<Self>;
     async fn get_or_create_session(&self, id: session::Id) -> session::SessionHandle<S>;
+    async fn cleanup_session(&self, id: session::Id);
 }
 
 /// LocalCoordinator is a simple coordinator impl that just holds sessions on a single node
@@ -29,13 +30,24 @@ impl<S: session::Session + Send + Sync> Coordinator<S> for LocalCoordinator<S> {
         let mut sessions = self.sessions.lock().await;
 
         if let Some(session) = sessions.get(&id) {
-            debug!("LocalCoordinator found existing session id={} ", id);
+            info!("LocalCoordinator found existing session id={} ", id);
             return session.clone();
         }
 
-        debug!("LocalCoodinator starting new session id={}", id);
+        info!("LocalCoodinator starting new session id={}", id);
         let session = S::new(id.clone());
         sessions.insert(id.clone(), session.clone());
         session
+    }
+
+    async fn cleanup_session(&self, id: session::Id) {
+        let mut sessions = self.sessions.lock().await;
+
+        if let Some(session) = sessions.get_mut(&id) {
+            if !session.active().await {
+                info!("LocalCoordinator removed session id={}", id);
+                sessions.remove_entry(&id);
+            }
+        }
     }
 }

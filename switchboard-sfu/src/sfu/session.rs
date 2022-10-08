@@ -22,9 +22,12 @@ pub type WriteStream = mpsc::Sender<SessionEvent>;
 #[async_trait]
 pub trait Session {
     fn new(id: Id) -> SessionHandle<Self>;
+    fn id(&self) -> Id;
+    async fn active(&self) -> bool;
+    fn write_channel(&self) -> WriteStream;
+
     async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()>;
     async fn remove_peer(&self, id: peer::Id) -> Result<()>;
-    fn write_channel(&self) -> WriteStream;
 }
 
 pub enum SessionEvent {
@@ -33,7 +36,7 @@ pub enum SessionEvent {
 }
 
 pub struct LocalSession {
-    id: Id,
+    pub id: Id,
     peers: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,
     routers: Arc<Mutex<HashMap<String, MediaTrackRouterHandle>>>,
     tx: WriteStream,
@@ -45,16 +48,25 @@ impl Session for LocalSession {
         let (tx, rx) = mpsc::channel(16);
 
         let handle = Arc::new(LocalSession {
-            id: id,
+            id,
             peers: Arc::new(Mutex::new(HashMap::new())),
             routers: Arc::new(Mutex::new(HashMap::new())),
-            tx: tx,
+            tx,
         });
 
         tokio::spawn(enc!((handle) async move { LocalSession::event_loop(handle, rx).await } ));
 
         debug!("LocalSession(id={}) started", handle.id);
         handle
+    }
+
+    fn id(&self) -> Id {
+        self.id.clone()
+    }
+
+    async fn active(&self) -> bool {
+        let peers = self.peers.lock().await;
+        peers.len() > 0
     }
 
     fn write_channel(&self) -> WriteStream {
@@ -108,6 +120,7 @@ impl LocalSession {
     }
 
     async fn remove_router(&self, router_id: String) {
+        let _ = self.peers.lock().await;
         let mut routers = self.routers.lock().await;
         let _router = routers.remove(&router_id);
     }
