@@ -7,6 +7,7 @@ use log::*;
 use std::sync::Arc;
 use uuid::Uuid;
 use webrtc::api::setting_engine::SettingEngine;
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
@@ -106,11 +107,10 @@ impl Peer {
     pub async fn subscriber_set_answer(&self, answer: RTCSessionDescription) -> Result<()> {
         self.subscriber.set_remote_description(answer).await?;
 
-        if let mut pending_candidates = self.sub_pending_candidates.lock().await {
-            while let Some(candidate) = (*pending_candidates).pop() {
-                if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
-                    error!("error adding ice candidate: {}", err);
-                }
+        let mut pending_candidates = self.sub_pending_candidates.lock().await;
+        while let Some(candidate) = (*pending_candidates).pop() {
+            if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
+                error!("error adding ice candidate: {}", err);
             }
         }
 
@@ -129,6 +129,9 @@ impl Peer {
             subscriber.rtp_event_loop().await;
 
             if let Some(sub_pc) = sub_pc.upgrade() {
+                if sub_pc.connection_state() == RTCPeerConnectionState::Closed {
+                    return;
+                }
                 sub_pc
                     .remove_track(&rtp_sender)
                     .await
@@ -152,10 +155,9 @@ impl Peer {
             }
             TRANSPORT_TARGET_SUB => match self.subscriber.remote_description().await {
                 None => {
-                    if let mut pending_candidates = self.sub_pending_candidates.lock().await {
-                        debug!("subscriber pending candidate added");
-                        pending_candidates.push(candidate);
-                    }
+                    let mut pending_candidates = self.sub_pending_candidates.lock().await;
+                    debug!("subscriber pending candidate added");
+                    pending_candidates.push(candidate);
                 }
                 Some(_) => {
                     if let Err(err) = self.subscriber.add_ice_candidate(candidate).await {
@@ -255,13 +257,18 @@ impl Peer {
                     info!("subscriber on_negotiation_needed");
 
                     if let Some(sub_pc) = sub_pc.upgrade() {
-                        let offer = sub_pc.create_offer(None).await.unwrap();
-                        sub_pc.set_local_description(offer).await.unwrap();
+                        if sub_pc.connection_state() == RTCPeerConnectionState::Closed {
+                                return;
+                        }
+
+                        let offer = sub_pc.create_offer(None).await.expect("could not create subscriber offer:");
+                        sub_pc.set_local_description(offer).await.expect("could not set local description");
                         let offer = sub_pc.local_description().await.unwrap();
 
                         info!("subscriber sending offer");
-                        sig_tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer)))
-                            .expect("error sending subscriber offer");
+                        if let Err(_) = sig_tx.unbounded_send(Ok(signal::Event::SubscriberOffer(offer))) {
+                            error!("signal connection closed");
+                        }
                     }
                 }))
             })))

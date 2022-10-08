@@ -108,6 +108,7 @@ impl LocalSession {
     }
 
     async fn remove_router(&self, router_id: String) {
+        let _ = self.peers.lock().await;
         let mut routers = self.routers.lock().await;
         let _router = routers.remove(&router_id);
     }

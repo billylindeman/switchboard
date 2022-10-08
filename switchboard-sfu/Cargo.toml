@@ -12,7 +12,6 @@ default-run = "switchboard"
 default = ["simulcast", "audiolevel"]
 simulcast = []
 audiolevel = []
-#p2p = ["libp2p"]
 
 [dependencies]
 anyhow = "1"
@@ -34,8 +33,7 @@ enclose = "1.1.8"
 async-trait = "0.1.53"
 uuid = { version = "1.0.0", features = ["v4"]}
 
-#webrtc = "0.4.0"
-webrtc = { git = "https://github.com/webrtc-rs/webrtc", branch = "master" }
+webrtc = "0.5.1"
 
 #libp2p experiment
 #libp2p = { version = "0.40.0", features = ["tcp-tokio"], optional = true}
@@ -43,10 +41,6 @@ webrtc = { git = "https://github.com/webrtc-rs/webrtc", branch = "master" }
 [[bin]]
 name = "switchboard"
 path = "bin/main.rs"
-
-#[[bin]]
-#name = "p2p"
-#path = "bin/p2p.rs"
 
 
 

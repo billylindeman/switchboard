@@ -3,7 +3,7 @@ const remotesDiv = document.getElementById("remotes");
 
 const params = new URLSearchParams(window.location.search)
 
-const serverUrl = `ws://${(window.location.host) || "localhost"}:7000/session/test`;
+const serverUrl = `ws://${(window.location.host) || "localhost"}:7000/session/d205be62-ff33-4608-93a1-957404cdaed3`;
 
 /* eslint-env browser */
 const joinBtns = document.getElementById("start-btns");
@@ -19,7 +19,7 @@ const config = {
 const signalLocal = new Signal.IonSFUJSONRPCSignal(serverUrl);
 
 const clientLocal = new IonSDK.Client(signalLocal, config);
-signalLocal.onopen = () => clientLocal.join(params.has("session") ? params.get("session") : "test session");
+signalLocal.onopen = () => clientLocal.join(params.has("session") ? params.get("session") : "d205be62-ff33-4608-93a1-957404cdaed3");
 
 /**
  * For every remote stream this object will hold the follwing information:
