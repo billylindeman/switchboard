@@ -134,9 +134,12 @@ pub async fn handle_messages(
                         sig_read_tx.unbounded_send(Ok(Event::PublisherOffer(tx, o))).expect("error forwarding signal message");
                     },
                     "presence_set" => {
-                        let p: Presence =
+                        let meta: serde_json::Value =
                             serde_json::from_value(Value::Object(r.params)).expect("error parsing");
-                        sig_read_tx.unbounded_send(Ok(Event::Presence(p))).expect("error forwarding signal message");
+                        sig_read_tx.unbounded_send(Ok(Event::Presence(Presence{
+                            revision: 0,
+                            meta: meta,
+                        }))).expect("error forwarding signal message");
                     }
 
                     _ => {}
