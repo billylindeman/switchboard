@@ -6,11 +6,13 @@ use futures::StreamExt;
 use futures_channel::mpsc;
 use log::*;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;
+use crate::signal::signal;
 
 // SessionID represents a collection of peers that can route tracks to eachother
 pub type Id = String;
@@ -28,6 +30,8 @@ pub trait Session {
 
     async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()>;
     async fn remove_peer(&self, id: peer::Id) -> Result<()>;
+
+    async fn presence_set(&self, id: peer::Id, meta: serde_json::Value);
 }
 
 pub enum SessionEvent {
@@ -40,6 +44,9 @@ pub struct LocalSession {
     peers: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,
     routers: Arc<Mutex<HashMap<String, MediaTrackRouterHandle>>>,
     tx: WriteStream,
+
+    presence_meta: Arc<Mutex<HashMap<peer::Id, serde_json::Value>>>,
+    presence_revision: AtomicU64,
 }
 
 #[async_trait]
@@ -52,6 +59,9 @@ impl Session for LocalSession {
             peers: Arc::new(Mutex::new(HashMap::new())),
             routers: Arc::new(Mutex::new(HashMap::new())),
             tx,
+
+            presence_meta: Arc::new(Mutex::new(HashMap::new())),
+            presence_revision: AtomicU64::new(0),
         });
 
         tokio::spawn(enc!((handle) async move { LocalSession::event_loop(handle, rx).await } ));
@@ -98,6 +108,28 @@ impl Session for LocalSession {
         }
 
         Ok(())
+    }
+
+    async fn presence_set(&self, id: peer::Id, meta: serde_json::Value) {
+        let mut presence = self.presence_meta.lock().await;
+        presence.insert(id, meta);
+
+        let mut rev: u64 = self.presence_revision.load(Ordering::SeqCst);
+        rev += 1;
+        self.presence_revision.store(rev, Ordering::SeqCst);
+
+        let p = signal::Presence {
+            revision: rev,
+            meta: serde_json::to_value(&*presence).unwrap(),
+        };
+
+        let peers = self.peers.lock().await;
+
+        for (_, peer) in &*peers {
+            peer.signal_tx
+                .unbounded_send(Ok(signal::Event::Presence(p.clone())))
+                .ok();
+        }
     }
 }
 
