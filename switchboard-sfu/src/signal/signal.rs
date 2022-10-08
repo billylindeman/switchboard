@@ -92,7 +92,6 @@ pub async fn handle_messages(
                             let result = rx.await.unwrap();
                             let response = jsonrpc::Response{
                                 id: id,
-                                method: "join".to_owned(),
                                 result: Some(serde_json::from_value(serde_json::to_value(result).unwrap()).expect("error creating response")),
                                 error: None
                             };
@@ -115,7 +114,6 @@ pub async fn handle_messages(
                             let result = rx.await.unwrap();
                             let response = jsonrpc::Response{
                                 id: id,
-                                method: "offer".to_owned(),
                                 result: Some(serde_json::from_value(serde_json::to_value(result).unwrap()).expect("error creating response")),
                                 error: None
                             };

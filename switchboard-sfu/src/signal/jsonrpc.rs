@@ -30,7 +30,6 @@ pub struct Request {
 #[serde(rename_all = "snake_case")]
 pub struct Response {
     pub id: Id,
-    pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
