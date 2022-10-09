@@ -1,22 +1,14 @@
-use anyhow::Result;
 use async_mutex::Mutex;
 use enclose::enc;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use futures_channel::{mpsc, oneshot};
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use uuid::Uuid;
-use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::rtcp;
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp;
 use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
-use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
-use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
-use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
-use webrtc::Error;
 
 use super::*;
 use crate::sfu::peer;
@@ -58,7 +50,7 @@ impl MediaTrackRouter {
         (
             Arc::new(Mutex::new(MediaTrackRouter {
                 id: track_remote.id().await,
-                track_remote: track_remote,
+                track_remote,
                 packet_sender: pkt_tx,
                 _rtp_receiver: rtp_receiver,
                 event_tx: evt_tx,
@@ -108,7 +100,7 @@ impl MediaTrackRouter {
         );
 
         let mut last_timestamp = 0;
-        while let Ok((mut rtp, attr)) = track.read_rtp().await {
+        while let Ok((mut rtp, _attr)) = track.read_rtp().await {
             // Change the timestamp to only be the delta
             let old_timestamp = rtp.header.timestamp;
             if last_timestamp == 0 {

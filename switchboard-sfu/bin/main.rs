@@ -1,4 +1,4 @@
-use std::{env, io::Error};
+use std::env;
 
 use switchboard_sfu::*;
 

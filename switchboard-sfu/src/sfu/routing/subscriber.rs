@@ -1,24 +1,18 @@
+//use async_mutex::Mutex;
 use anyhow::Result;
-use async_mutex::Mutex;
 use enclose::enc;
-use futures::{Stream, StreamExt};
-use futures_channel::{mpsc, oneshot};
+use futures_channel::mpsc;
 use log::*;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use uuid::Uuid;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
-use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp;
-use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
 use webrtc::Error;
-
-use crate::sfu::peer;
 
 pub(super) enum MediaTrackSubscriberEvent {
     PictureLossIndication,
@@ -51,8 +45,8 @@ impl MediaTrackSubscriber {
         );
         MediaTrackSubscriber {
             track: output_track,
-            pkt_receiver: pkt_receiver,
-            evt_sender: evt_sender,
+            pkt_receiver,
+            evt_sender,
         }
     }
 
@@ -144,14 +138,14 @@ impl MediaTrackSubscriber {
                 let header = rtcp.header();
                 match header.packet_type {
                     PacketType::ReceiverReport => {
-                        let rr = &rtcp
+                        let _rr = &rtcp
                             .as_any()
                             .downcast_ref::<rtcp::receiver_report::ReceiverReport>()
                             .unwrap();
                     }
                     PacketType::PayloadSpecificFeedback => match header.count {
                         FORMAT_PLI => {
-                            let pli = &rtcp
+                            let _pli = &rtcp
                                     .as_any()
                                     .downcast_ref::<rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication>()
                                     .unwrap();

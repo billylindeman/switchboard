@@ -13,7 +13,6 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
-use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -24,7 +23,6 @@ use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_remote::TrackRemote;
 
-use crate::sfu::coordinator::Coordinator;
 use crate::sfu::mediaengine;
 use crate::sfu::routing::*;
 use crate::sfu::session::{self, SessionEvent};
@@ -320,7 +318,7 @@ async fn build_peer_connection(s: SettingEngine) -> Result<(Arc<RTCPeerConnectio
     // Create a new RTCPeerConnection
     let peer_connection = Arc::new(api.new_peer_connection(config).await?);
 
-    let (rtcp_tx, mut rtcp_rx) = mpsc::channel(32);
+    let (rtcp_tx, mut rtcp_rx): (RtcpWriter, RtcpReader) = mpsc::channel(32);
 
     // Spawn RTCP Write Loop
     tokio::spawn(enc!( (peer_connection) async move {

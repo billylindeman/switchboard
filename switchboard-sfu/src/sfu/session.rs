@@ -8,7 +8,6 @@ use log::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;

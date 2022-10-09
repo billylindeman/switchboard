@@ -1,11 +1,10 @@
 use webrtc::error::Result;
 use webrtc::rtp_transceiver::rtp_codec::{
-    RTCRtpCodecCapability, RTCRtpCodecParameters, RTCRtpHeaderExtensionCapability,
-    RTCRtpHeaderExtensionParameters, RTCRtpParameters, RTPCodecType,
+    RTCRtpCodecCapability, RTCRtpCodecParameters, RTCRtpHeaderExtensionCapability, RTPCodecType,
 };
 
 use webrtc::api::media_engine::*;
-use webrtc::rtp_transceiver::{PayloadType, RTCPFeedback};
+use webrtc::rtp_transceiver::RTCPFeedback;
 
 const EXT_URI_SDES_MID: &str = "urn:ietf:params:rtp-hdrext:sdes:mid";
 const EXT_URI_SDES_RTP_SID: &str = "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
