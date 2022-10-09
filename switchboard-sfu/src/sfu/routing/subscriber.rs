@@ -7,12 +7,13 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
-use webrtc::rtp;
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
 use webrtc::Error;
+
+use crate::sfu::routing;
 
 pub(super) enum MediaTrackSubscriberEvent {
     PictureLossIndication,
@@ -22,14 +23,16 @@ pub(super) enum MediaTrackSubscriberEvent {
 /// that can be added to another Peer's subscriber RTCPeerConnection)
 pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
-    pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    pkt_receiver: broadcast::Receiver<routing::router::Packet>,
     evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
+
+    subscribe_layer: routing::Layer,
 }
 
 impl MediaTrackSubscriber {
     pub(super) async fn new(
         remote: &TrackRemote,
-        pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+        pkt_receiver: broadcast::Receiver<routing::router::Packet>,
         evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
     ) -> MediaTrackSubscriber {
         let output_track = Arc::new(TrackLocalStaticRTP::new(
@@ -43,10 +46,12 @@ impl MediaTrackSubscriber {
             output_track.id(),
             output_track.stream_id()
         );
+
         MediaTrackSubscriber {
             track: output_track,
             pkt_receiver,
             evt_sender,
+            subscribe_layer: routing::Layer::Rid("q".to_owned()),
         }
     }
 
@@ -86,21 +91,25 @@ impl MediaTrackSubscriber {
         let mut i = 0;
 
         while let Ok(mut packet) = self.pkt_receiver.recv().await {
+            if *packet.layer != self.subscribe_layer {
+                trace!("MediaTrackSubscriber skipping packet, layer mismatch");
+                continue;
+            }
             // Timestamp on the packet is really a diff, so add it to current
-            curr_timestamp += packet.header.timestamp;
-            packet.header.timestamp = curr_timestamp;
+            curr_timestamp += packet.rtp.header.timestamp;
+            packet.rtp.header.timestamp = curr_timestamp;
             // Keep an increasing sequence number
-            packet.header.sequence_number = i;
+            packet.rtp.header.sequence_number = i;
 
             trace!(
                 "MediaTrackSubscriber wrote RTP ssrc={} seq={} timestamp={}",
-                packet.header.ssrc,
-                packet.header.sequence_number,
-                packet.header.timestamp
+                packet.rtp.header.ssrc,
+                packet.rtp.header.sequence_number,
+                packet.rtp.header.timestamp
             );
 
             // Write out the packet, ignoring closed pipe if nobody is listening
-            if let Err(err) = self.track.write_rtp(&packet).await {
+            if let Err(err) = self.track.write_rtp(&packet.rtp).await {
                 if Error::ErrClosedPipe == err {
                     // The peerConnection has been closed.
                     debug!("MediaTrackSubscriber write_rtp ErrClosedPipe");

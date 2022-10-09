@@ -8,6 +8,7 @@ use log::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use webrtc::track::track_remote::TrackRemote;
 
 use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;
@@ -171,21 +172,25 @@ impl LocalSession {
         let _router = routers.remove(&router_id);
     }
 
-    async fn subscribe_all_peers_to_router(&self, router: &MediaTrackRouterHandle) {
+    async fn subscribe_all_peers_to_router(&self, router: &MediaTrackRouterHandle) -> Result<()> {
         let mut peers = self.peers.lock().await;
 
         for (_, peer) in &mut *peers {
-            let subscriber = { router.lock().await.add_subscriber().await };
+            let subscriber = { router.lock().await.add_subscriber().await? };
             peer.add_media_track_subscriber(subscriber).await;
         }
+
+        Ok(())
     }
 
-    async fn subscribe_peer_to_all_routers(&self, peer: &Arc<peer::Peer>) {
+    async fn subscribe_peer_to_all_routers(&self, peer: &Arc<peer::Peer>) -> Result<()> {
         let mut routers = self.routers.lock().await;
 
         for (_, router) in &mut *routers {
-            let subscriber = { router.lock().await.add_subscriber().await };
+            let subscriber = { router.lock().await.add_subscriber().await? };
             peer.add_media_track_subscriber(subscriber).await;
         }
+
+        Ok(())
     }
 }

@@ -4,6 +4,7 @@ use enclose::enc;
 use futures::{SinkExt, StreamExt};
 use futures_channel::mpsc;
 use log::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 use webrtc::api::setting_engine::SettingEngine;
@@ -212,15 +213,31 @@ impl Peer {
             .await;
 
         let pub_rtcp_tx = self.pub_rtcp_writer.clone();
+        let published_routers = Arc::new(Mutex::new(HashMap::new()));
         self.publisher
-            .on_track(Box::new(enc!( (session_tx) {
+            .on_track(Box::new(enc!( (session_tx, published_routers) {
                 move |track: Option<Arc<TrackRemote>>, receiver: Option<Arc<RTCRtpReceiver>>| {
-                    Box::pin( enc!( (mut session_tx, pub_rtcp_tx) async move {
+                    Box::pin( enc!( (mut session_tx, pub_rtcp_tx, mut published_routers) async move {
 
                     if let (Some(track), Some(receiver)) = (track,receiver) {
                         tokio::spawn(async move {
                             let id = track.id().await;
-                            let (media_track_router, closed) = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
+
+                            let (media_track_router, closed) = {
+                                let mut routers = published_routers.lock().await;
+                                let router = match routers.get(&id) {
+                                    None => {
+                                        let r = MediaTrackRouter::new(track.ssrc(), id.clone(), pub_rtcp_tx).await; 
+                                        routers.insert(id.clone(), r.clone());
+                                        r
+                                    },
+                                    Some(r) => r.clone(),
+                                };
+
+                                let closed = { router.lock().await.add_layer(track,receiver).await };
+                                (router.clone(), closed)
+                            };
+
                             session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
                             let _ = closed.await;
                             session_tx.send(SessionEvent::TrackRemoved(id)).await.expect("error sending track removed");

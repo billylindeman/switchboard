@@ -63,6 +63,7 @@ const start = () => {
     resolution: "hd",
     audio: true,
     codec: params.has("codec") ? params.get("codec") : "VP8",
+    simulcast: true,
   })
     .then((media) => {
       localStream = media;
