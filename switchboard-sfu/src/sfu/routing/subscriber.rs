@@ -3,19 +3,16 @@ use anyhow::Result;
 use enclose::enc;
 use futures_channel::mpsc;
 use log::*;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtcp;
-use webrtc::rtp;
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
 use webrtc::Error;
 
-use crate::sfu::peer;
 use crate::sfu::routing;
 
 pub(super) enum MediaTrackSubscriberEvent {
@@ -54,7 +51,7 @@ impl MediaTrackSubscriber {
             track: output_track,
             pkt_receiver,
             evt_sender,
-            subscribe_layer: routing::Layer::Unicast,
+            subscribe_layer: routing::Layer::Rid("q".to_owned()),
         }
     }
 
@@ -94,6 +91,10 @@ impl MediaTrackSubscriber {
         let mut i = 0;
 
         while let Ok(mut packet) = self.pkt_receiver.recv().await {
+            if *packet.layer != self.subscribe_layer {
+                trace!("MediaTrackSubscriber skipping packet, layer mismatch");
+                continue;
+            }
             // Timestamp on the packet is really a diff, so add it to current
             curr_timestamp += packet.rtp.header.timestamp;
             packet.rtp.header.timestamp = curr_timestamp;

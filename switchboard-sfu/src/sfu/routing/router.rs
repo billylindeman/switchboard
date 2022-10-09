@@ -1,3 +1,4 @@
+use anyhow::{format_err, Result};
 use async_mutex::Mutex;
 use enclose::enc;
 use futures::StreamExt;
@@ -40,7 +41,7 @@ impl MediaTrackRouter {
         ssrc: u32,
         tid: String,
         rtcp_writer: peer::RtcpWriter,
-    ) -> (MediaTrackRouterHandle) {
+    ) -> MediaTrackRouterHandle {
         let (pkt_tx, _pkt_rx) = broadcast::channel(512);
         let (evt_tx, evt_rx) = mpsc::channel(32);
 
@@ -60,9 +61,8 @@ impl MediaTrackRouter {
     pub async fn add_layer(
         &mut self,
         track_remote: Arc<TrackRemote>,
-        rtp_receiver: Arc<RTCRtpReceiver>,
+        _rtp_receiver: Arc<RTCRtpReceiver>,
     ) -> oneshot::Receiver<bool> {
-        let media_ssrc = track_remote.ssrc();
         let pkt_tx = self.packet_sender.clone();
 
         let (closed_tx, closed_rx) = oneshot::channel();
@@ -71,15 +71,28 @@ impl MediaTrackRouter {
             let _ = closed_tx.send(true);
         }));
 
+        let layer = Layer::from(track_remote.rid());
+        self.track_remotes.insert(layer, track_remote);
+
         closed_rx
     }
 
-    pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
-        trace!("MediaTrackRouter adding new subscriber");
+    pub async fn add_subscriber(&self) -> Result<MediaTrackSubscriber> {
+        let track_remote = match self.track_remotes.values().next() {
+            Some(track) => track,
+            None => {
+                return Err(format_err!(
+                    "MediaTrackRouter could not add subscriber: no remote tracks have been added to this router"
+                ));
+            }
+        };
 
+        trace!("MediaTrackRouter adding new subscriber");
         let event_tx = self.event_tx.clone();
-        MediaTrackSubscriber::new(&self.track_remote, self.packet_sender.subscribe(), event_tx)
-            .await
+        Ok(
+            MediaTrackSubscriber::new(&track_remote, self.packet_sender.subscribe(), event_tx)
+                .await,
+        )
     }
 
     async fn rtcp_event_loop(
@@ -129,7 +142,8 @@ impl MediaTrackRouter {
             last_timestamp = old_timestamp;
 
             trace!(
-                "MediaTrackRouter received RTP ssrc={} seq={} timestamp={}",
+                "MediaTrackRouter received RTP :layer={:?} ssrc={} seq={} timestamp={}",
+                layer,
                 rtp.header.ssrc,
                 rtp.header.sequence_number,
                 rtp.header.timestamp

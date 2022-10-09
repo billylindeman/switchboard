@@ -6,12 +6,20 @@ pub use subscriber::*;
 
 // Layer
 // Used by router & subscriber to determine which video stream to send
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Layer {
-    // Mute Stream
     None,
     // Single video stream
     Unicast,
     // Simulcast layer w/RID
     Rid(String),
+}
+
+impl Layer {
+    pub fn from(rid: &str) -> Layer {
+        match rid {
+            "" => Layer::Unicast,
+            layer => Layer::Rid(layer.to_owned()),
+        }
+    }
 }
