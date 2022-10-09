@@ -3,6 +3,7 @@ use enclose::enc;
 use futures::StreamExt;
 use futures_channel::{mpsc, oneshot};
 use log::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
@@ -20,7 +21,7 @@ pub type MediaTrackRouterHandle = Arc<Mutex<MediaTrackRouter>>;
 /// write the track to multiple other peer connections
 pub struct MediaTrackRouter {
     pub id: Id,
-    track_remote: Arc<TrackRemote>,
+    track_remotes: HashMap<Layer, Arc<TrackRemote>>,
 
     event_tx: mpsc::Sender<MediaTrackSubscriberEvent>,
     packet_sender: broadcast::Sender<rtp::packet::Packet>,
@@ -50,7 +51,7 @@ impl MediaTrackRouter {
         (
             Arc::new(Mutex::new(MediaTrackRouter {
                 id: track_remote.id().await,
-                track_remote,
+                track_remote: map![],
                 packet_sender: pkt_tx,
                 _rtp_receiver: rtp_receiver,
                 event_tx: evt_tx,
@@ -58,6 +59,8 @@ impl MediaTrackRouter {
             closed_rx,
         )
     }
+
+    pub async fn add_layer(&mut self, layer: Layer, track: Arc<TrackRemote>) {}
 
     pub async fn add_subscriber(&self) -> MediaTrackSubscriber {
         trace!("MediaTrackRouter adding new subscriber");

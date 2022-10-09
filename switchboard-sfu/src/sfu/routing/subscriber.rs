@@ -3,6 +3,7 @@ use anyhow::Result;
 use enclose::enc;
 use futures_channel::mpsc;
 use log::*;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -14,6 +15,9 @@ use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
 use webrtc::track::track_remote::TrackRemote;
 use webrtc::Error;
 
+use crate::sfu::peer;
+use crate::sfu::routing;
+
 pub(super) enum MediaTrackSubscriberEvent {
     PictureLossIndication,
 }
@@ -24,6 +28,8 @@ pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
     pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
     evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
+
+    subscribe_layer: Arc<routing::Layer>,
 }
 
 impl MediaTrackSubscriber {
@@ -43,10 +49,12 @@ impl MediaTrackSubscriber {
             output_track.id(),
             output_track.stream_id()
         );
+
         MediaTrackSubscriber {
             track: output_track,
             pkt_receiver,
             evt_sender,
+            layer: Arc::new(None),
         }
     }
 
