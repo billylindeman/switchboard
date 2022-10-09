@@ -26,16 +26,16 @@ pub(super) enum MediaTrackSubscriberEvent {
 /// that can be added to another Peer's subscriber RTCPeerConnection)
 pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
-    pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+    pkt_receiver: broadcast::Receiver<routing::router::Packet>,
     evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
 
-    subscribe_layer: Arc<routing::Layer>,
+    subscribe_layer: routing::Layer,
 }
 
 impl MediaTrackSubscriber {
     pub(super) async fn new(
         remote: &TrackRemote,
-        pkt_receiver: broadcast::Receiver<rtp::packet::Packet>,
+        pkt_receiver: broadcast::Receiver<routing::router::Packet>,
         evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
     ) -> MediaTrackSubscriber {
         let output_track = Arc::new(TrackLocalStaticRTP::new(
@@ -54,7 +54,7 @@ impl MediaTrackSubscriber {
             track: output_track,
             pkt_receiver,
             evt_sender,
-            layer: Arc::new(None),
+            subscribe_layer: routing::Layer::Unicast,
         }
     }
 
@@ -95,20 +95,20 @@ impl MediaTrackSubscriber {
 
         while let Ok(mut packet) = self.pkt_receiver.recv().await {
             // Timestamp on the packet is really a diff, so add it to current
-            curr_timestamp += packet.header.timestamp;
-            packet.header.timestamp = curr_timestamp;
+            curr_timestamp += packet.rtp.header.timestamp;
+            packet.rtp.header.timestamp = curr_timestamp;
             // Keep an increasing sequence number
-            packet.header.sequence_number = i;
+            packet.rtp.header.sequence_number = i;
 
             trace!(
                 "MediaTrackSubscriber wrote RTP ssrc={} seq={} timestamp={}",
-                packet.header.ssrc,
-                packet.header.sequence_number,
-                packet.header.timestamp
+                packet.rtp.header.ssrc,
+                packet.rtp.header.sequence_number,
+                packet.rtp.header.timestamp
             );
 
             // Write out the packet, ignoring closed pipe if nobody is listening
-            if let Err(err) = self.track.write_rtp(&packet).await {
+            if let Err(err) = self.track.write_rtp(&packet.rtp).await {
                 if Error::ErrClosedPipe == err {
                     // The peerConnection has been closed.
                     debug!("MediaTrackSubscriber write_rtp ErrClosedPipe");

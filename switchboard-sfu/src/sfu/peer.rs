@@ -220,6 +220,7 @@ impl Peer {
                     if let (Some(track), Some(receiver)) = (track,receiver) {
                         tokio::spawn(async move {
                             let id = track.id().await;
+
                             let (media_track_router, closed) = MediaTrackRouter::new(track, receiver, pub_rtcp_tx).await;
                             session_tx.send(SessionEvent::TrackPublished(media_track_router.clone())).await.expect("error sending track router to session");
                             let _ = closed.await;

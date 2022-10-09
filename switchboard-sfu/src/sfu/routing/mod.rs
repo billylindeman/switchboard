@@ -6,6 +6,7 @@ pub use subscriber::*;
 
 // Layer
 // Used by router & subscriber to determine which video stream to send
+#[derive(Clone)]
 pub enum Layer {
     // Mute Stream
     None,
