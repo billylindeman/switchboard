@@ -20,24 +20,39 @@ pub type SessionHandle<T> = Arc<T>;
 pub type ReadStream = mpsc::Receiver<SessionEvent>;
 pub type WriteStream = mpsc::Sender<SessionEvent>;
 
+/// Session
+/// Session is a single logical call within switchboard
+/// All published tracks are routed to all subscribers
 #[async_trait]
 pub trait Session {
+    /// Create a new session
     fn new(id: Id) -> SessionHandle<Self>;
+    /// Session ID
     fn id(&self) -> Id;
+    /// Returns true if there are connected peers within this session
     async fn active(&self) -> bool;
+    /// WriteStream for SessionEvent's
     fn write_channel(&self) -> WriteStream;
 
+    /// Adds a peer connection to the session
     async fn add_peer(&self, id: peer::Id, peer: Arc<peer::Peer>) -> Result<()>;
+    /// Removes a peer connection from the session
     async fn remove_peer(&self, id: peer::Id) -> Result<()>;
 
+    /// Sets the metadata json for a given peer::Id
+    /// (this is for application specific json to be broadcasted to all connected peers)
     async fn presence_set(&self, id: peer::Id, meta: serde_json::Value);
 }
 
+/// SessionEvent allows sfu::Peer to publish changes to the session and have the session react
 pub enum SessionEvent {
     TrackPublished(MediaTrackRouterHandle),
     TrackRemoved(String),
 }
 
+/// LocalSession
+/// Implementation of Session that can locally (on this node)
+/// route traffic between sfu::Peer's
 pub struct LocalSession {
     pub id: Id,
     peers: Arc<Mutex<HashMap<peer::Id, Arc<peer::Peer>>>>,

@@ -53,6 +53,7 @@ pub struct Peer {
 }
 
 impl Peer {
+    /// Creates a new Peer (with 2 peer connections)
     pub async fn new(
         signal_tx: signal::WriteStream,
         session_tx: mpsc::Sender<SessionEvent>,
@@ -172,6 +173,7 @@ impl Peer {
         Ok(())
     }
 
+    /// Closes both the publisher and subscriber peer connection
     pub async fn close(&self) {
         self.publisher
             .close()
@@ -183,6 +185,9 @@ impl Peer {
             .expect("error closing subscriber");
     }
 
+    /// This installs callbacks onto the peer connections that will send  
+    /// signal::Event's back to the controlling websocket
+    /// session::SessionEvent's to the controlling session
     pub async fn setup_signal_hooks(
         &mut self,
         sig_tx: signal::WriteStream,
@@ -277,6 +282,7 @@ impl Peer {
     }
 }
 
+/// Helper to build peer connections with the appropriate configuration
 async fn build_peer_connection(s: SettingEngine) -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
