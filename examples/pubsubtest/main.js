@@ -21,6 +21,8 @@ const signalLocal = new Signal.IonSFUJSONRPCSignal(serverUrl);
 const clientLocal = new IonSDK.Client(signalLocal, config);
 signalLocal.onopen = () => clientLocal.join(params.has("session") ? params.get("session") : "d205be62-ff33-4608-93a1-957404cdaed3");
 
+window.client = clientLocal;
+
 /**
  * For every remote stream this object will hold the follwing information:
  * {
@@ -31,6 +33,7 @@ signalLocal.onopen = () => clientLocal.join(params.has("session") ? params.get("
  * }
  */
 const streams = {};
+window.streams = streams;
 
 /**
  * When we click the Enable Audio button this function gets called, and

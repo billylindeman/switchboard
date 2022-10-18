@@ -4,6 +4,7 @@ use enclose::enc;
 use futures::{SinkExt, StreamExt};
 use futures_channel::mpsc;
 use log::*;
+use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -250,9 +251,23 @@ impl Peer {
             )))
             .await;
 
-        let _ = self
+        let api = self
             .subscriber
-            .create_data_channel("switchboard-rx", None)
+            .create_data_channel("ion-sfu", None)
+            .await.expect("error creating api datachannel");
+
+        api.on_message(Box::new(move |msg: DataChannelMessage| {
+                match serde_json::from_slice::<super::api::SetRemoteMedia>(&msg.data) {
+                    Ok(media) => {
+                        debug!("datachannel api message: {:?}", media);
+
+                    }
+                    Err(e) => {
+                        warn!("datachannel api error: {:?}", e);
+                    }
+                };
+                Box::pin(async {})
+            }))
             .await;
 
         self.subscriber
