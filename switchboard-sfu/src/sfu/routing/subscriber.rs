@@ -25,8 +25,7 @@ pub struct MediaTrackSubscriber {
     track: Arc<TrackLocalStaticRTP>,
     pkt_receiver: broadcast::Receiver<routing::router::Packet>,
     evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
-
-    subscribe_layer: routing::Layer,
+    //subscribe_layer: routing::Layer,
 }
 
 impl MediaTrackSubscriber {
@@ -51,7 +50,7 @@ impl MediaTrackSubscriber {
             track: output_track,
             pkt_receiver,
             evt_sender,
-            subscribe_layer: routing::Layer::Rid("q".to_owned()),
+            //       subscribe_layer: routing::Layer::Rid("q".to_owned()),
         }
     }
 
@@ -89,9 +88,18 @@ impl MediaTrackSubscriber {
         // track
         let mut curr_timestamp = 0;
         let mut i = 0;
+        let mut current_layer = Arc::new(routing::Layer::None);
 
         while let Ok(mut packet) = self.pkt_receiver.recv().await {
-            if *packet.layer != self.subscribe_layer {
+            if *current_layer == routing::Layer::None && i == 0 {
+                // Initialize to first layer
+                current_layer = packet.layer.clone();
+                debug!(
+                    "MediaTrackSubscriber initialized to layer {:?}",
+                    current_layer
+                );
+            }
+            if *packet.layer != *current_layer {
                 trace!("MediaTrackSubscriber skipping packet, layer mismatch");
                 continue;
             }
