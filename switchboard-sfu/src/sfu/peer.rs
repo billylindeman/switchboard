@@ -4,6 +4,7 @@ use enclose::enc;
 use futures::{SinkExt, StreamExt};
 use futures_channel::mpsc;
 use log::*;
+use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
 use webrtc::api::setting_engine::SettingEngine;
@@ -37,6 +38,26 @@ const TRANSPORT_TARGET_SUB: u32 = 1;
 pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 
+pub struct PeerConfig {
+    setting_engine: SettingEngine,
+    rtc_config: RTCConfiguration,
+}
+
+impl Default for PeerConfig {
+    fn default() -> PeerConfig {
+        PeerConfig {
+            setting_engine: SettingEngine::default(),
+            rtc_config: RTCConfiguration {
+                ice_servers: vec![RTCIceServer {
+                    urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        }
+    }
+}
+
 /// Peer represents a WebRTC connection and it's tracks
 /// We hold two publisher, subscriber
 pub struct Peer {
@@ -57,12 +78,10 @@ impl Peer {
     pub async fn new(
         signal_tx: signal::WriteStream,
         session_tx: mpsc::Sender<SessionEvent>,
-        settings: Option<SettingEngine>,
+        cfg: PeerConfig,
     ) -> Result<Arc<Peer>> {
-        let settings = settings.or(Some(SettingEngine::default())).unwrap();
-
-        let (publisher, pub_rtcp_writer) = build_peer_connection(settings.clone()).await?;
-        let (subscriber, sub_rtcp_writer) = build_peer_connection(settings.clone()).await?;
+        let (publisher, pub_rtcp_writer) = build_peer_connection(&cfg).await?;
+        let (subscriber, sub_rtcp_writer) = build_peer_connection(&cfg).await?;
 
         let mut peer = Peer {
             id: Uuid::new_v4(),
@@ -283,7 +302,7 @@ impl Peer {
 }
 
 /// Helper to build peer connections with the appropriate configuration
-async fn build_peer_connection(s: SettingEngine) -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
+async fn build_peer_connection(cfg: &PeerConfig) -> Result<(Arc<RTCPeerConnection>, RtcpWriter)> {
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
     mediaengine::register_default_codecs(&mut m)?;
@@ -307,22 +326,13 @@ async fn build_peer_connection(s: SettingEngine) -> Result<(Arc<RTCPeerConnectio
     let api = APIBuilder::new()
         .with_media_engine(m)
         .with_interceptor_registry(registry)
-        .with_setting_engine(s)
+        .with_setting_engine(cfg.setting_engine.clone())
         .build();
-
-    // Prepare the configuration
-    let config = RTCConfiguration {
-        ice_servers: vec![RTCIceServer {
-            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
 
     trace!("building peer connection");
 
     // Create a new RTCPeerConnection
-    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
+    let peer_connection = Arc::new(api.new_peer_connection(cfg.rtc_config.clone()).await?);
 
     let (rtcp_tx, mut rtcp_rx): (RtcpWriter, RtcpReader) = mpsc::channel(32);
 

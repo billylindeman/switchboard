@@ -74,9 +74,13 @@ pub async fn event_loop<C, S>(
 
                 let session = coordinator.get_or_create_session(join.sid).await;
 
-                let p = peer::Peer::new(tx.clone(), session.write_channel(), None)
-                    .await
-                    .expect("Error creating peer");
+                let p = peer::Peer::new(
+                    tx.clone(),
+                    session.write_channel(),
+                    peer::PeerConfig::default(),
+                )
+                .await
+                .expect("Error creating peer");
 
                 let answer = p.publisher_get_answer_for_offer(join.offer).await;
                 if let Err(err) = &answer {
