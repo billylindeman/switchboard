@@ -39,8 +39,8 @@ pub(super) type RtcpWriter = mpsc::Sender<Box<dyn rtcp::packet::Packet + Send + 
 pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send + Sync>>;
 
 pub struct PeerConfig {
-    setting_engine: SettingEngine,
-    rtc_config: RTCConfiguration,
+    pub setting_engine: SettingEngine,
+    pub rtc_config: RTCConfiguration,
 }
 
 impl Default for PeerConfig {
