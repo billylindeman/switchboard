@@ -9,7 +9,7 @@ use webrtc::ice::candidate::*;
 use webrtc::ice::network_type::*;
 use webrtc::ice::url::Url;
 
-pub async fn resolve_external_ip() -> Result<String> {
+pub async fn resolve_external_ip_maps() -> Result<Vec<String>> {
     let ice_agent = Arc::new(
         Agent::new(AgentConfig {
             urls: vec![Url::parse_url("stun:stun.l.google.com:19302")?],
@@ -32,10 +32,10 @@ pub async fn resolve_external_ip() -> Result<String> {
                             c.address(),
                             c.candidate_type()
                         );
-
-                        if c.candidate_type() == CandidateType::ServerReflexive {
-                            tx_clone.send(c.address()).await.unwrap();
-                        }
+                        tx_clone
+                            .send((c.address(), c.candidate_type()))
+                            .await
+                            .unwrap();
                     }
                 })
             },
@@ -44,9 +44,25 @@ pub async fn resolve_external_ip() -> Result<String> {
 
     ice_agent.gather_candidates().await?;
 
-    if let Some(extip) = rx.recv().await {
-        debug!("Resolved external ip {}", extip);
-        return Ok(extip);
+    let mut hosts = vec![];
+    while let Some((addr, t)) = rx.recv().await {
+        match t {
+            CandidateType::Host => {
+                debug!("Resolved host ip {:?}", addr);
+                hosts.push(addr);
+            }
+            CandidateType::ServerReflexive => {
+                debug!("Resolved ext ip {:?}", addr);
+                let mut maps = vec![];
+
+                for h in hosts {
+                    maps.push(format!("{}/{}", addr, h));
+                }
+
+                return Ok(maps);
+            }
+            _ => {}
+        }
     }
 
     Err(format_err!("could not resolve external ip"))

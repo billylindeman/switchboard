@@ -1,3 +1,4 @@
+use log::*;
 use std::env;
 
 use switchboard_sfu::*;
@@ -9,7 +10,9 @@ async fn main() -> anyhow::Result<()> {
     }
     pretty_env_logger::init();
 
-    let _extip = switchboard_sfu::extip::resolve_external_ip().await?;
+    let extip = switchboard_sfu::extip::resolve_external_ip_maps().await?;
+
+    debug!("found mappings: {:?}", extip);
 
     let addr = env::args()
         .nth(1)
