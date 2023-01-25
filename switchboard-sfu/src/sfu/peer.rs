@@ -4,6 +4,7 @@ use enclose::enc;
 use futures::{SinkExt, StreamExt};
 use futures_channel::mpsc;
 use log::*;
+use webrtc::rtp_transceiver::rtp_codec::{RTCRtpHeaderExtensionCapability, RTPCodecType};
 use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -41,8 +42,8 @@ pub(super) type RtcpReader = mpsc::Receiver<Box<dyn rtcp::packet::Packet + Send 
 pub struct PeerConfig {
     pub setting_engine: SettingEngine,
     pub rtc_config: RTCConfiguration,
+    pub header_extensions: Vec<(RTCRtpHeaderExtensionCapability, RTPCodecType)>,
 }
-
 impl Default for PeerConfig {
     fn default() -> PeerConfig {
         PeerConfig {
@@ -54,6 +55,7 @@ impl Default for PeerConfig {
                 }],
                 ..Default::default()
             },
+            header_extensions: vec![],
         }
     }
 }
@@ -221,14 +223,12 @@ impl Peer {
                             target: TRANSPORT_TARGET_PUB,
                             candidate: c
                                 .to_json()
-                                .await
                                 .expect("error converting to json")
                                 .into(),
                         }))).expect("error sending ice");
                     }
                 }))
-            })))
-            .await;
+            })));
 
         let pub_rtcp_tx = self.pub_rtcp_writer.clone();
         self.publisher
@@ -249,8 +249,7 @@ impl Peer {
                     }
                 }))
                 }}
-            )))
-            .await;
+            )));
 
         let _ = self
             .subscriber
@@ -266,14 +265,12 @@ impl Peer {
                             target: TRANSPORT_TARGET_SUB,
                             candidate: c
                                 .to_json()
-                                .await
                                 .expect("error converting to json")
                                 .into(),
                         }))).expect("error sending ice");
                     }
                 }))
-            })))
-            .await;
+            })));
 
         let sub_pc = Arc::downgrade(&self.subscriber);
         self.subscriber
@@ -296,8 +293,7 @@ impl Peer {
                         }
                     }
                 }))
-            })))
-            .await;
+            })));
     }
 }
 
@@ -306,6 +302,10 @@ async fn build_peer_connection(cfg: &PeerConfig) -> Result<(Arc<RTCPeerConnectio
     // Create a MediaEngine object to configure the supported codec
     let mut m = MediaEngine::default();
     mediaengine::register_default_codecs(&mut m)?;
+
+    for (capability, codec_type) in &cfg.header_extensions {
+        m.register_header_extension(capability.clone(), codec_type.clone(), None)?;
+    }
 
     #[cfg(feature = "simulcast")]
     mediaengine::register_rtp_extension_simulcast(&mut m)?;

@@ -21,28 +21,26 @@ pub async fn resolve_external_ip_maps() -> Result<Vec<String>> {
 
     let (tx, mut rx) = mpsc::channel(16);
 
-    ice_agent
-        .on_candidate(Box::new(
-            move |c: Option<Arc<dyn Candidate + Send + Sync>>| {
-                let tx_clone = tx.clone();
-                Box::pin(async move {
-                    if let Some(c) = c {
-                        debug!(
-                            "Gathered External Candidate: {:?} {:?}",
-                            c.address(),
-                            c.candidate_type()
-                        );
-                        tx_clone
-                            .send((c.address(), c.candidate_type()))
-                            .await
-                            .unwrap();
-                    }
-                })
-            },
-        ))
-        .await;
+    ice_agent.on_candidate(Box::new(
+        move |c: Option<Arc<dyn Candidate + Send + Sync>>| {
+            let tx_clone = tx.clone();
+            Box::pin(async move {
+                if let Some(c) = c {
+                    debug!(
+                        "Gathered External Candidate: {:?} {:?}",
+                        c.address(),
+                        c.candidate_type()
+                    );
+                    tx_clone
+                        .send((c.address(), c.candidate_type()))
+                        .await
+                        .unwrap();
+                }
+            })
+        },
+    ));
 
-    ice_agent.gather_candidates().await?;
+    ice_agent.gather_candidates()?;
 
     let mut hosts = vec![];
     while let Some((addr, t)) = rx.recv().await {

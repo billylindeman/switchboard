@@ -327,7 +327,7 @@ pub fn register_rtp_extension_simulcast(m: &mut MediaEngine) -> Result<()> {
                 uri: extension.to_owned(),
             },
             RTPCodecType::Video,
-            vec![],
+            None,
         )?;
     }
 
@@ -346,7 +346,7 @@ pub fn register_rtp_extension_audiolevel(m: &mut MediaEngine) -> Result<()> {
                 uri: extension.to_owned(),
             },
             RTPCodecType::Audio,
-            vec![],
+            None,
         )?;
     }
     Ok(())
