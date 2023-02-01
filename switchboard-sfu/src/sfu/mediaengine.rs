@@ -164,133 +164,146 @@ pub fn register_default_codecs(media_engine: &mut MediaEngine) -> Result<()> {
                 clock_rate: 90000,
                 channels: 0,
                 sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=F4001f"
                         .to_owned(),
                 rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 102,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/rtx".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "apt=102".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 121,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: MIME_TYPE_H264.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-                        .to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 127,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/rtx".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "apt=127".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 120,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: MIME_TYPE_H264.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                        .to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 125,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/rtx".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "apt=125".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 107,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: MIME_TYPE_H264.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"
-                        .to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 108,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/rtx".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "apt=108".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 109,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: MIME_TYPE_H264.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-                        .to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 127,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/rtx".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "apt=127".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 120,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: MIME_TYPE_H264.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032"
-                        .to_owned(),
-                rtcp_feedback: video_rtcp_feedback,
             },
             payload_type: 123,
             ..Default::default()
         },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 102,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: "video/rtx".to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "apt=102".to_owned(),
+        //         rtcp_feedback: vec![],
+        //     },
+        //     payload_type: 121,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 127,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: "video/rtx".to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "apt=127".to_owned(),
+        //         rtcp_feedback: vec![],
+        //     },
+        //     payload_type: 120,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 125,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: "video/rtx".to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "apt=125".to_owned(),
+        //         rtcp_feedback: vec![],
+        //     },
+        //     payload_type: 107,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 108,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: "video/rtx".to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "apt=108".to_owned(),
+        //         rtcp_feedback: vec![],
+        //     },
+        //     payload_type: 109,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 127,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: "video/rtx".to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "apt=127".to_owned(),
+        //         rtcp_feedback: vec![],
+        //     },
+        //     payload_type: 120,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: MIME_TYPE_H264.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line:
+        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032"
+        //                 .to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback,
+        //     },
+        //     payload_type: 123,
+        //     ..Default::default()
+        // },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
                 mime_type: "video/rtx".to_owned(),
