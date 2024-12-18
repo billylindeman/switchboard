@@ -33,9 +33,9 @@ impl MediaTrackSubscriber {
         evt_sender: mpsc::Sender<MediaTrackSubscriberEvent>,
     ) -> MediaTrackSubscriber {
         let output_track = Arc::new(TrackLocalStaticRTP::new(
-            remote.codec().await.capability,
-            remote.id().await,
-            remote.stream_id().await,
+            remote.codec().capability,
+            remote.id(),
+            remote.stream_id(),
         ));
 
         debug!(

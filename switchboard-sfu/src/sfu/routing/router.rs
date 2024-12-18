@@ -49,7 +49,7 @@ impl MediaTrackRouter {
 
         (
             Arc::new(Mutex::new(MediaTrackRouter {
-                id: track_remote.id().await,
+                id: track_remote.id(),
                 track_remote,
                 packet_sender: pkt_tx,
                 _rtp_receiver: rtp_receiver,
@@ -96,7 +96,7 @@ impl MediaTrackRouter {
         debug!(
             "MediaTrackRouter has started, of type {}: {}",
             track.payload_type(),
-            track.codec().await.capability.mime_type
+            track.codec().capability.mime_type
         );
 
         let mut last_timestamp = 0;
@@ -130,7 +130,7 @@ impl MediaTrackRouter {
         debug!(
             "MediaTrackRouter has ended, of type {}: {}",
             track.payload_type(),
-            track.codec().await.capability.mime_type
+            track.codec().capability.mime_type
         );
     }
 }
