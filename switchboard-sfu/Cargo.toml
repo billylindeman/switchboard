@@ -33,10 +33,7 @@ enclose = "1.1.8"
 async-trait = "0.1.53"
 uuid = { version = "1.0.0", features = ["v4", "serde"]}
 
-webrtc = "0.6.0"
-
-#libp2p experiment
-#libp2p = { version = "0.40.0", features = ["tcp-tokio"], optional = true}
+webrtc = "0.12.0"
 
 [[bin]]
 name = "switchboard"
