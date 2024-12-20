@@ -6,54 +6,11 @@ use serde_json::{Map, Value};
 
 use futures_channel::{mpsc, oneshot};
 
+use switchboard_proto::jsonrpc;
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum Id {
-    Uuid(String),
-    Int(i32),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct Request {
-    pub id: Id,
-    pub method: String,
-    pub params: Map<String, Value>,
-
-    #[serde(skip)]
-    pub result: Option<oneshot::Sender<Response>>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct Response {
-    pub id: Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Map<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct Notification {
-    pub method: String,
-    pub params: Map<String, Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-/// JsonRPC Event
-pub enum Event {
-    Request(Request),
-    Response(Response),
-    Notification(Notification),
-}
-
-pub type ReadStream = mpsc::UnboundedReceiver<anyhow::Result<Event>>;
-pub type WriteStream = mpsc::UnboundedSender<anyhow::Result<Event>>;
+pub type ReadStream = mpsc::UnboundedReceiver<anyhow::Result<jsonrpc::Event>>;
+pub type WriteStream = mpsc::UnboundedSender<anyhow::Result<jsonrpc::Event>>;
 
 /// This function processes the websocket stream into
 /// a writer and reader for jsonrpc::Event's
@@ -62,8 +19,8 @@ pub async fn handle_messages(
 ) -> (ReadStream, WriteStream) {
     let (write, read) = stream.split();
 
-    let (read_tx, read_rx) = mpsc::unbounded::<anyhow::Result<Event>>();
-    let (write_tx, write_rx) = mpsc::unbounded::<anyhow::Result<Event>>();
+    let (read_tx, read_rx) = mpsc::unbounded::<anyhow::Result<jsonrpc::Event>>();
+    let (write_tx, write_rx) = mpsc::unbounded::<anyhow::Result<jsonrpc::Event>>();
 
     // Inbound message loop
     tokio::spawn(async move {
@@ -74,7 +31,7 @@ pub async fn handle_messages(
                 trace!("websocket got msg {}", msg);
                 msg
             })
-            .map(|msg| serde_json::from_str::<Event>(msg.unwrap().to_text().unwrap()))
+            .map(|msg| serde_json::from_str::<jsonrpc::Event>(msg.unwrap().to_text().unwrap()))
             .map_err(|err| {
                 error!("error parsing json: {}", err);
                 err.into()

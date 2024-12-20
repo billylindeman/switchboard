@@ -34,6 +34,7 @@ async-trait = "0.1.53"
 uuid = { version = "1.0.0", features = ["v4", "serde"]}
 
 webrtc = "0.12.0"
+switchboard-proto = { path = "../switchboard-proto/" }
 
 [[bin]]
 name = "switchboard"

@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use switchboard_proto as proto;
+
 use crate::sfu::peer;
 use crate::sfu::routing::MediaTrackRouterHandle;
 use crate::signal::signal;
@@ -132,7 +134,7 @@ impl Session for LocalSession {
         rev += 1;
         self.presence_revision.store(rev, Ordering::SeqCst);
 
-        let p = signal::Presence {
+        let p = proto::signal::Presence {
             revision: rev,
             meta: serde_json::to_value(&*presence).unwrap(),
         };

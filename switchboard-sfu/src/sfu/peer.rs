@@ -26,6 +26,8 @@ use webrtc::rtp_transceiver::rtp_receiver::RTCRtpReceiver;
 use webrtc::rtp_transceiver::rtp_sender::RTCRtpSender;
 use webrtc::track::track_remote::TrackRemote;
 
+use switchboard_proto as proto;
+
 use crate::sfu::mediaengine;
 use crate::sfu::routing::*;
 use crate::sfu::session::{self, SessionEvent};
@@ -220,7 +222,7 @@ impl Peer {
                 Box::pin(enc!( (sig_tx) async move {
                     if let Some(c) = c {
                         info!("on ice candidate publisher: {}", c);
-                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(proto::signal::TrickleNotification {
                             target: TRANSPORT_TARGET_PUB,
                             candidate: c
                                 .to_json()
@@ -258,7 +260,7 @@ impl Peer {
                 Box::pin(enc!( (sig_tx) async move {
                     if let Some(c) = c {
                         info!("on ice candidate subscriber: {}", c);
-                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(signal::TrickleNotification {
+                        sig_tx.unbounded_send(Ok(signal::Event::TrickleIce(proto::signal::TrickleNotification {
                             target: TRANSPORT_TARGET_SUB,
                             candidate: c
                                 .to_json()

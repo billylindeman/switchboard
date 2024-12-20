@@ -1,5 +1,7 @@
 [workspace]
 
-members = [
+members = [ 
     "switchboard-sfu",
+    "switchboard-proto",
+    "switchboard-client", 
 ]
