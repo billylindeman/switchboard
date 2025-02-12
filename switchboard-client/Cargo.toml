@@ -13,5 +13,8 @@ anyhow = "1.0.94"
 futures = "0.3.31"
 tokio-utils = "0.1.2"
 tokio-util = "0.7.13"
+tokio-rustls = "0.26.1"
+tracing = "0.1.41"
+uuid = { version = "1.13.1", features = ["v4"] }
 
 
